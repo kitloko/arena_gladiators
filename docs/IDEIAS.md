@@ -267,6 +267,10 @@ pode chegar ao topo do rank — se chegar, o rank não diz nada.
    `BOMBARD`): ataques com dano/precisão diferentes em vez de um único "Atacar". *(médio)*
 8. **Inimigos com identidade.** Templates com fraqueza/resistência (armadura pesada → lento; ágil → esquiva)
    em vez de só escala numérica. *(médio)* — casa com o item G.
+   **✅ FEITO (06/10)** — `scripts/systems/trait_system.gd`: 6 traços com efeito real no combate (`frail` +25%
+   de golpe pesado, `slow` −0,15 de esquiva e −10% de precisão, `dodgy` +0,10 de esquiva, `armoured` −20% de
+   dano melee, `glass` +15% recebido/+10% causado, `beast` +10% de dano causado). Cada inimigo tem um traço e o
+   **texto da fraqueza descreve exatamente o efeito**; a luta imprime o aviso quando ele morde.
 9. **Cidades/arenas diferentes.** Arena Livre com cenários por faixa de nível, cada um com tabela de
    recompensa própria — a S&S tem várias cidades. *(grande)* — casa com o item B.
 10. **Mascates/serviços:** médico (cura barata), ferreiro (melhora item +1), treinador (XP pago). *(médio)*

@@ -348,3 +348,37 @@ O **treinador** abriu com **"TREINAR (+20 XP) — 55 ouro"** e o botão **desabi
 nível** (o jogador já tinha ganho o teto lutando) — a sessão paga é coberta deterministicamente no
 `run_systems_test`. O ferreiro também mostra peças **da bolsa**, e melhorar uma peça não equipada **não** muda a
 armadura equipada (verificado: a peça melhorada era a Túnica, na bolsa, com a Couraça equipada em 8/8).
+
+---
+
+## Resultado da etapa 6 — traços de combate (06/10/2026)
+
+Fecha a **ideia 8** ("inimigos com identidade"): a fraqueza declarada era só texto; agora ela **morde**.
+
+**Catálogo** (`scripts/systems/trait_system.gd`) — efeito medido com seed fixa, 2.000 amostras, mesmo sorteio
+entre controle e traço (DEF/AGI/SOR do alvo zerados para isolar):
+
+| Traço | Efeito | Medido |
+| --- | --- | --- |
+| **Frágil** (`frail`) | +25% de dano de golpe pesado | pesado **×1,251** · golpe comum ×1,000 |
+| **Lento** (`slow`) | −0,15 de esquiva e −10% de precisão | esquiva 0,20 → **0,05** (365 → **102** esquivas em 2.000) · precisão 0,50 → **0,45** |
+| **Ágil** (`dodgy`) | +0,10 de esquiva | 0,20 → **0,30** (396 → **572** em 2.000) |
+| **Couraçado** (`armoured`) | −20% de dano melee e −0,10 de esquiva | melee **×0,800** · ranged ×1,000 |
+| **Vidro** (`glass`) | +15% de dano recebido e +10% causado | recebido **×1,151** · causado **×1,099** |
+| **Fera** (`beast`) | +10% de dano causado | **×1,100** |
+
+**Quem tem o quê:** brutus **Couraçado** · lívia **Frágil** · maurus **Lento** · vettius **Ágil** · imperator
+**Vidro** · grande_gladiador **Fera** — e o **texto da fraqueza de cada um descreve exatamente o efeito** (teste
+de consistência texto ↔ traço em todos os templates). A luta imprime a mordida no log (`Frágil: +25% de dano`,
+`Couraçado: aparou parte do golpe (−20% corpo a corpo)`, `Lento: não conseguiu esquivar`...).
+
+**Peso no Índice de Poder** (senão a apresentação mentiria sobre a dificuldade): Frágil −6 · Lento −8 · Ágil +6 ·
+Couraçado +6 · Vidro +2 · Fera +8 (escala em que 1 STR vale 2,0). A odd da aposta lê o mesmo índice.
+
+**Efeito no balanceamento:** Arena Livre **inalterada** (inimigo procedural não tem traço, por desenho). Os
+torneios ficaram **mais difíceis** — Menor 94% → **87%**, Maior 81% → **72%**, Grande 76% → **67%** — e **a
+escada se manteve** (Menor > Maior > Grande). Os traços não deixaram nada mais fácil, então **nenhum número
+precisou ser afrouxado**: o critério do balanceamento segue intacto e verde.
+
+**Caveat honesto:** o simulador do balanceamento troca golpes **sem id de ação**, então o bônus de *golpe
+pesado* do Frágil não é exercido lá (os outros cinco traços são). Esse bônus é coberto no `run_systems_test`.

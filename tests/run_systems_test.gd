@@ -14,6 +14,7 @@ const ContentRepositoryScript := preload("res://scripts/repositories/content_rep
 const SaveSystemScript := preload("res://scripts/systems/save_system.gd")
 const ItemGeneratorScript := preload("res://scripts/systems/item_generator.gd")
 const PresentationSystemScript := preload("res://scripts/systems/presentation_system.gd")
+const TraitSystemScript := preload("res://scripts/systems/trait_system.gd")
 const InjurySystemScript := preload("res://scripts/systems/injury_system.gd")
 const HaggleSystemScript := preload("res://scripts/systems/haggle_system.gd")
 const BettingSystemScript := preload("res://scripts/systems/betting_system.gd")
@@ -67,6 +68,18 @@ func _initialize() -> void:
 	_test_presentation_power_index()
 	_test_presentation_taunt_draw()
 	_test_enemy_identity_content()
+	# --- ETAPA 6: traços de combate (item 8: a fraqueza tem de MORDER) ---
+	_test_trait_catalog_shape()
+	_test_trait_frail_heavy_damage()
+	_test_trait_slow_dodge_and_accuracy()
+	_test_trait_dodgy_dodge()
+	_test_trait_armoured_melee_reduction()
+	_test_trait_glass_damage()
+	_test_trait_beast_damage()
+	_test_trait_notes_in_result()
+	_test_trait_text_matches_content()
+	_test_trait_procedural_enemy_without_trait()
+	_test_trait_power_index_and_betting()
 	# --- ETAPA 5 ---
 	_test_injury_generated_and_reduces_attribute()
 	_test_injury_limits_and_no_zero()
@@ -1327,4 +1340,201 @@ func _test_enemy_identity_content() -> void:
 	# A reserva é usada quando o template não traz identidade.
 	var generic: Dictionary = PresentationSystemScript.identity_from_template({})
 	_check(str(generic.get("nickname", "")) != "" and not (generic.get("taunts", []) as Array).is_empty(), "template vazio cai na reserva genérica (apelido + falas)")
+
+# ===========================================================================
+# ETAPA 6 — TRAÇOS DE COMBATE (item 8): a fraqueza declarada tem de MORDER
+# ===========================================================================
+
+## Lutador de teste com um traço e atributos isolados para medir DANO causado.
+func _trait_striker(trait_id: String):
+	return _fighter({"base_strength": 50, "base_attack": 0, "base_defence": 0, "base_agility": 0, "base_luck": 0, "trait": trait_id})
+
+## Alvo de teste com um traço e sem esquiva/auto-defesa/crítico que poluam a medida.
+func _trait_dummy(trait_id: String):
+	return _fighter({"base_strength": 1, "base_attack": 0, "base_defence": 0, "base_agility": 0, "base_vitality": 5000, "base_luck": 0, "trait": trait_id})
+
+## Dano MÉDIO de 2000 golpes com seed FIXA: controle e traço usam a MESMA sequência
+## aleatória, então a única diferença entre as duas medidas é o próprio traço.
+func _mean_damage(attacker_trait: String, defender_trait: String, attack_id: String, kind: String, seed_value: int) -> float:
+	var samples := 2000
+	var attacker = _trait_striker(attacker_trait)
+	var defender = _trait_dummy(defender_trait)
+	seed(seed_value)
+	var total := 0
+	for i in samples:
+		var result: Dictionary = CombatResolverScript.resolve_attack(attacker, defender, 1.6, 1.0, 0, attack_id, kind)
+		total += int(result.damage)
+	return float(total) / float(samples)
+
+## Conta esquivas de um alvo com traço e AGI dada, em 2000 golpes com seed fixa.
+func _count_dodges(defender_trait: String, agility: int, seed_value: int) -> int:
+	var attacker = _fighter({"base_strength": 10, "base_attack": 0, "base_luck": 0})
+	var seen := 0
+	seed(seed_value)
+	for i in 2000:
+		var defender = _fighter({"base_agility": agility, "base_luck": 0, "trait": defender_trait})
+		var result: Dictionary = CombatResolverScript.resolve_attack(attacker, defender, 1.0, 1.0, 0, "golpe", "melee")
+		if bool(result.get("dodged", false)):
+			seen += 1
+	return seen
+
+## Catálogo fechado, com o efeito exato de cada traço e a noção de "golpe pesado".
+func _test_trait_catalog_shape() -> void:
+	var ids: Array = TraitSystemScript.trait_ids()
+	_check(ids.size() >= 4 and ids.size() <= 6, "catálogo fechado tem de 4 a 6 traços (tem %d)" % ids.size())
+	var valid := true
+	for entry: Variant in ids:
+		var defn: Dictionary = TraitSystemScript.trait_definition(str(entry))
+		if str(defn.get("label", "")) == "" or str(defn.get("description", "")) == "":
+			valid = false
+	_check(valid, "todo traço tem id, rótulo e descrição do efeito")
+	_check(TraitSystemScript.is_heavy_attack("golpe_forte") and TraitSystemScript.is_heavy_attack("investida") and TraitSystemScript.is_heavy_attack("bombardeio"), "GOLPE FORTE, INVESTIDA e BOMBARDEIO são golpes pesados")
+	_check(not TraitSystemScript.is_heavy_attack("golpe") and not TraitSystemScript.is_heavy_attack("tiro") and not TraitSystemScript.is_heavy_attack(""), "golpe comum, tiro e vazio NÃO são pesados")
+	_check(not TraitSystemScript.has_trait("dragon") and TraitSystemScript.trait_definition("dragon").is_empty(), "id fora do catálogo é recusado (catálogo fechado)")
+	_check(TraitSystemScript.trait_definition("").is_empty() and TraitSystemScript.power_weight(_fighter({})) == 0, "sem traço: definição vazia e peso 0")
+
+## Frágil: +25% de dano de golpe pesado; golpe comum NÃO muda.
+func _test_trait_frail_heavy_damage() -> void:
+	var control := _mean_damage("", "", "golpe_forte", "melee", 90210)
+	var frail := _mean_damage("", "frail", "golpe_forte", "melee", 90210)
+	var ratio := frail / control
+	_check(ratio > 1.20 and ratio < 1.30, "Frágil leva +25%% de GOLPE PESADO (controle %.1f vs frágil %.1f = ×%.3f)" % [control, frail, ratio])
+	var control_light := _mean_damage("", "", "golpe", "melee", 90210)
+	var frail_light := _mean_damage("", "frail", "golpe", "melee", 90210)
+	_check(is_equal_approx(control_light, frail_light), "Frágil NÃO muda o dano de golpe comum (%.1f vs %.1f)" % [control_light, frail_light])
+
+## Lento: −0,15 de esquiva e −10% de precisão, medidos de verdade.
+func _test_trait_slow_dodge_and_accuracy() -> void:
+	var agile = _fighter({"base_agility": 20})
+	var slowed = _fighter({"base_agility": 20, "trait": "slow"})
+	_check(is_equal_approx(CombatResolverScript.dodge_chance(slowed), CombatResolverScript.dodge_chance(agile) - 0.15), "Lento reduz a esquiva em 0,15 (%.2f → %.2f)" % [CombatResolverScript.dodge_chance(agile), CombatResolverScript.dodge_chance(slowed)])
+	_check(is_equal_approx(CombatResolverScript.accuracy_for(_trait_striker("slow"), 0.5), 0.45) and is_equal_approx(CombatResolverScript.accuracy_for(_trait_striker(""), 0.5), 0.5), "Lento corta 10% da precisão (0,50 → 0,45)")
+	var dodges_control := _count_dodges("", 20, 7777)
+	var dodges_slow := _count_dodges("slow", 20, 7777)
+	_check(dodges_control > dodges_slow + 200, "alvo Lento esquiva menos na prática (controle %d vs lento %d de 2000)" % [dodges_control, dodges_slow])
+
+## Ágil: +0,10 de esquiva própria, medido.
+func _test_trait_dodgy_dodge() -> void:
+	var plain = _fighter({"base_agility": 20})
+	var dodgy = _fighter({"base_agility": 20, "trait": "dodgy"})
+	_check(is_equal_approx(CombatResolverScript.dodge_chance(dodgy), CombatResolverScript.dodge_chance(plain) + 0.10), "Ágil soma +0,10 de esquiva (%.2f → %.2f)" % [CombatResolverScript.dodge_chance(plain), CombatResolverScript.dodge_chance(dodgy)])
+	var control := _count_dodges("", 20, 4242)
+	var with_trait := _count_dodges("dodgy", 20, 4242)
+	_check(with_trait > control + 100, "alvo Ágil esquiva mais na prática (controle %d vs ágil %d de 2000)" % [control, with_trait])
+
+## Couraçado: −20% de dano melee e −0,10 de esquiva, mas NÃO reduz dano à distância.
+func _test_trait_armoured_melee_reduction() -> void:
+	var plain = _fighter({"base_agility": 20})
+	var armoured = _fighter({"base_agility": 20, "trait": "armoured"})
+	_check(is_equal_approx(CombatResolverScript.dodge_chance(armoured), CombatResolverScript.dodge_chance(plain) - 0.10), "Couraçado reduz a esquiva em 0,10")
+	var control := _mean_damage("", "", "golpe", "melee", 31337)
+	var armoured_melee := _mean_damage("", "armoured", "golpe", "melee", 31337)
+	var ratio_melee := armoured_melee / control
+	_check(ratio_melee > 0.76 and ratio_melee < 0.84, "Couraçado leva −20%% de dano MELEE (controle %.1f vs couraçado %.1f = ×%.3f)" % [control, armoured_melee, ratio_melee])
+	var control_ranged := _mean_damage("", "", "tiro", "ranged", 31337)
+	var armoured_ranged := _mean_damage("", "armoured", "tiro", "ranged", 31337)
+	_check(is_equal_approx(control_ranged, armoured_ranged), "Couraçado NÃO reduz dano à distância (%.1f vs %.1f)" % [control_ranged, armoured_ranged])
+
+## Vidro: +15% de dano recebido (qualquer tipo) e +10% de dano causado.
+func _test_trait_glass_damage() -> void:
+	var dealt_control := _mean_damage("", "", "golpe", "melee", 5150)
+	var dealt_glass := _mean_damage("glass", "", "golpe", "melee", 5150)
+	_check(dealt_glass / dealt_control > 1.06 and dealt_glass / dealt_control < 1.14, "Vidro CAUSA +10%% de dano (×%.3f)" % (dealt_glass / dealt_control))
+	var taken_control := _mean_damage("", "", "golpe", "melee", 5150)
+	var taken_glass := _mean_damage("", "glass", "golpe", "melee", 5150)
+	_check(taken_glass / taken_control > 1.11 and taken_glass / taken_control < 1.19, "Vidro RECEBE +15%% de dano (×%.3f)" % (taken_glass / taken_control))
+
+## Fera: +10% de dano causado (variante escolhida, documentada no catálogo).
+func _test_trait_beast_damage() -> void:
+	var control := _mean_damage("", "", "golpe", "melee", 6060)
+	var beast := _mean_damage("beast", "", "golpe", "melee", 6060)
+	_check(beast / control > 1.06 and beast / control < 1.14, "Fera CAUSA +10%% de dano (×%.3f)" % (beast / control))
+
+## O traço tem de APARECER no resultado do ataque (é o que vira log na arena).
+func _test_trait_notes_in_result() -> void:
+	var heavy: Dictionary = CombatResolverScript.resolve_attack(_trait_striker(""), _trait_dummy("frail"), 1.6, 1.0, 0, "golpe_forte", "melee")
+	_check(bool(heavy.hit) and (heavy.get("trait_notes", []) as Array).has("Frágil: +25% de dano"), "resultado traz 'Frágil: +25% de dano' no golpe pesado")
+	var melee: Dictionary = CombatResolverScript.resolve_attack(_trait_striker(""), _trait_dummy("armoured"), 1.0, 1.0, 0, "golpe", "melee")
+	_check((melee.get("trait_notes", []) as Array).has("Couraçado: aparou parte do golpe (−20% corpo a corpo)"), "resultado traz o aviso do Couraçado")
+	var beast: Dictionary = CombatResolverScript.resolve_attack(_trait_striker("beast"), _trait_dummy(""), 1.0, 1.0, 0, "golpe", "melee")
+	_check((beast.get("trait_notes", []) as Array).has("Fera: +10% de dano"), "resultado traz 'Fera: +10% de dano'")
+	var glass_hit: Dictionary = CombatResolverScript.resolve_attack(_trait_striker(""), _trait_dummy("glass"), 1.0, 1.0, 0, "golpe", "melee")
+	_check((glass_hit.get("trait_notes", []) as Array).has("Vidro: +15% de dano recebido"), "resultado traz 'Vidro: +15% de dano recebido'")
+	var slow_hit := false
+	seed(1234)
+	for i in 50:
+		var r: Dictionary = CombatResolverScript.resolve_attack(_trait_striker(""), _trait_dummy("slow"), 1.0, 1.0, 0, "golpe", "melee")
+		if bool(r.get("hit", false)) and (r.get("trait_notes", []) as Array).has("Lento: não conseguiu esquivar"):
+			slow_hit = true
+	_check(slow_hit, "resultado traz 'Lento: não conseguiu esquivar' quando o Lento é acertado")
+	_check(TraitSystemScript.dodge_note(_fighter({"trait": "dodgy"})) == "Ágil: esquivou com facilidade", "aviso de esquiva do Ágil definido")
+	_check(TraitSystemScript.accuracy_miss_note(_fighter({"trait": "slow"})) == "Lento: −10% de precisão", "aviso de erro do Lento definido")
+	_check(TraitSystemScript.dealt_note(_fighter({"trait": "beast"})) == "Fera: +10% de dano", "aviso de dano da Fera definido")
+
+## Consistência texto ↔ traço: todo template tem traço do catálogo e o texto da
+## fraqueza DESCREVE exatamente esse traço (nada de texto dizendo um traço noutro).
+func _test_trait_text_matches_content() -> void:
+	var enemies := ContentRepositoryScript.load_enemies()
+	var with_trait := 0
+	for enemy: Dictionary in enemies:
+		var enemy_id := str(enemy.get("id", "?"))
+		var trait_id := str(enemy.get("trait", ""))
+		_check(trait_id != "" and TraitSystemScript.has_trait(trait_id), "inimigo %s declara um traço do catálogo ('%s')" % [enemy_id, trait_id])
+		var label := TraitSystemScript.label_for(trait_id)
+		var weakness := str(enemy.get("weakness", ""))
+		_check(label != "" and weakness.contains(label), "a fraqueza de %s descreve o traço %s ('%s')" % [enemy_id, label, weakness])
+		_check(TraitSystemScript.description_for(trait_id) != "", "o traço %s tem descrição de efeito canônica" % trait_id)
+		with_trait += 1
+	_check(with_trait == enemies.size(), "todos os %d templates ganharam traço" % enemies.size())
+	var identity: Dictionary = PresentationSystemScript.identity_from_template(enemies[0])
+	_check(str(identity.get("trait", "")) == str(enemies[0].get("trait", "")), "a identidade do inimigo carrega o traço")
+
+## Inimigo procedural da Arena Livre NÃO tem traço (a arena livre não muda) e um
+## template sem "trait" também não quebra nada.
+func _test_trait_procedural_enemy_without_trait() -> void:
+	seed(8888)
+	var items := ContentRepositoryScript.load_items()
+	var without := 0
+	var broke := false
+	var player = _trait_striker("")
+	for i in 500:
+		var foe = GladiatorDataScript.new(CombatResolverScript.generate_enemy(6, items))
+		if foe.trait_id == "":
+			without += 1
+		for j in 5:
+			var r: Dictionary = CombatResolverScript.resolve_attack(player, foe, 1.0, 1.0, 0, "golpe_forte", "melee")
+			if not (r.has("trait_notes") and r.get("trait_notes") is Array):
+				broke = true
+			foe.heal_full()
+	_check(without == 500, "inimigo procedural da Arena Livre nasce SEM traço (%d de 500)" % without)
+	_check(not broke, "atacar inimigo procedural sem traço não quebra (notas vazias, sem erro)")
+	var enemies := ContentRepositoryScript.load_enemies()
+	var brutus = CombatResolverScript.enemy_for_level(5, ContentRepositoryScript.find_enemy(enemies, "brutus"))
+	_check(brutus.trait_id == "armoured", "enemy_for_level carrega o traço do template (brutus = %s)" % brutus.trait_id)
+	var plain = CombatResolverScript.enemy_for_level(5, {"id": "sem_traco", "base_health": 40})
+	_check(plain.trait_id == "", "template sem 'trait' gera inimigo sem traço")
+
+## O traço entra no Índice de Poder (e, por tabela, na odd da aposta) com o peso
+## pequeno e documentado — senão a apresentação mentiria sobre a dificuldade.
+func _test_trait_power_index_and_betting() -> void:
+	var base_values := {"base_strength": 10, "base_attack": 10, "base_defence": 10, "base_agility": 10, "base_vitality": 10, "base_charisma": 10, "base_luck": 10, "level": 1}
+	var base_power: int = PresentationSystemScript.power_index(_fighter(base_values))
+	var consistent := true
+	for entry: Variant in TraitSystemScript.trait_ids():
+		var values := base_values.duplicate()
+		values["trait"] = str(entry)
+		var with_trait: int = PresentationSystemScript.power_index(_fighter(values))
+		var weight: int = int(TraitSystemScript.trait_definition(str(entry)).get("power_weight", 0))
+		if with_trait != base_power + weight:
+			consistent = false
+	_check(consistent, "o traço soma exatamente o power_weight documentado ao Índice de Poder")
+	var frail = _fighter({"base_strength": 10, "trait": "frail"})
+	var plain = _fighter({"base_strength": 10})
+	var beast = _fighter({"base_strength": 10, "trait": "beast"})
+	_check(PresentationSystemScript.power_index(frail) < PresentationSystemScript.power_index(plain), "Frágil aparece ABAIXO do mesmo lutador sem traço")
+	_check(PresentationSystemScript.power_index(beast) > PresentationSystemScript.power_index(plain), "Fera aparece ACIMA do mesmo lutador sem traço")
+	_check(PresentationSystemScript.power_index(null) == 0, "Índice de Poder de nulo continua 0")
+	var odd_plain: float = BettingSystemScript.odd_for(100, PresentationSystemScript.power_index(plain))
+	var odd_beast: float = BettingSystemScript.odd_for(100, PresentationSystemScript.power_index(beast))
+	_check(odd_beast >= odd_plain, "inimigo com traço forte paga odd maior (%.3f ≥ %.3f)" % [odd_beast, odd_plain])
 

@@ -84,6 +84,11 @@ var enemy_reach: int = 1
 var enemy_tier: int = 1
 var reward_multiplier: float = 1.0
 var weapon_label: String = ""
+## TRAÇO de combate (docs/IDEIAS.md item 8): id do catálogo de TraitSystem. Vem do
+## campo "trait" do template de data/enemies.json. O JOGADOR não tem traço (fica
+## "") e o inimigo procedural da Arena Livre também nasce sem traço.
+## (A propriedade é `trait_id` porque `trait` é palavra reservada do GDScript.)
+var trait_id: String = ""
 ## Chefe (data/enemies.json "boss": true): usado pela felicidade do público, que
 ## começa empolgada (piso 60) contra chefes.
 var boss: bool = false
@@ -157,6 +162,8 @@ func _init(values: Dictionary = {}) -> void:
 	enemy_tier = int(values.get("enemy_tier", 1))
 	reward_multiplier = float(values.get("reward_multiplier", 1.0))
 	weapon_label = str(values.get("weapon_label", ""))
+	# TRAÇO de combate (item 8): só inimigos com template o declaram; padrão "".
+	trait_id = str(values.get("trait", ""))
 	boss = bool(values.get("boss", false))
 	injuries = _load_injuries(values.get("injuries", []))
 	haggle_marks = _load_marks(values.get("haggle_marks", {}))

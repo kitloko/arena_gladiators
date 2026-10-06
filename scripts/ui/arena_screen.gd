@@ -461,12 +461,12 @@ func _enemy_attack_or_special(defense_bonus: int, weapon: Dictionary) -> void:
 	if bool(result.hit) and int(result.entered) > 0 and not bool(result.blocked):
 		_play_pose(true, "hit", 0.3)
 
-func _player_attack(multiplier: float, accuracy: float, penalty_scale: float, message: String) -> void:
+func _player_attack(multiplier: float, accuracy: float, penalty_scale: float, message: String, attack_id: String = "") -> void:
 	var weapon := GameState.player_weapon()
 	if weapon.is_empty():
 		weapon = {"kind": "melee", "reach": 1}
 	_play_pose(true, "attack", 0.35)
-	var result: Dictionary = CombatResolverScript.resolve_positional_attack(GameState.player, foe, weapon, distance, multiplier, accuracy, 0, penalty_scale)
+	var result: Dictionary = CombatResolverScript.resolve_positional_attack(GameState.player, foe, weapon, distance, multiplier, accuracy, 0, penalty_scale, attack_id)
 	if bool(result.get("out_of_range", false)):
 		log_lines.append("[color=#bbaec1]%s, mas está longe demais (distância %d).[/color]" % [message, distance])
 		_crowd_event("missed")
@@ -483,7 +483,7 @@ func _player_named_attack(kind: String) -> void:
 	var action := CombatResolverScript.find_action(CombatResolverScript.attack_actions_for(weapon), kind)
 	if action.is_empty():
 		return
-	_player_attack(float(action.get("multiplier", 1.0)), float(action.get("accuracy", 1.0)), float(action.get("penalty_scale", 1.0)), "%s usa %s" % [GameState.player.display_name, str(action.get("label", "ataque"))])
+	_player_attack(float(action.get("multiplier", 1.0)), float(action.get("accuracy", 1.0)), float(action.get("penalty_scale", 1.0)), "%s usa %s" % [GameState.player.display_name, str(action.get("label", "ataque"))], kind)
 
 ## DORMIR: cura 25% da vida máxima, mas deixa VULNERÁVEL no próximo golpe.
 func _player_sleep() -> void:
@@ -624,6 +624,7 @@ func _apply_combat_result(attacker, target, message: String, result: Dictionary)
 	if int(result.get("health_damage", 0)) > 0 or int(result.get("counter_health_damage", 0)) > 0:
 		_round_cold = false
 	_apply_crowd_from_result(result, is_player_attack)
+	_log_trait_notes(result)
 	if bool(result.get("dodged", false)):
 		log_lines.append("[color=#bbaec1]%s — %s esQUIVA! ERROU.[/color]" % [message, target.display_name])
 		_spawn_status_text(target_is_player, "ERROU", Color("bbaec1"))
@@ -654,6 +655,15 @@ func _apply_combat_result(attacker, target, message: String, result: Dictionary)
 		log_lines.append("%s e causa [color=#d95858]%d de dano[/color].%s" % [message, entered, tag])
 	if entered > 0:
 		_spawn_damage_text(target_is_player, entered, bool(result.get("critical", false)))
+
+## TRAÇOS (item 8): imprime no log cada mordida do traço de combate do inimigo
+## (ex.: 'Frágil: +25% de dano', 'Ágil: esquivou com facilidade'). Sem isso a QA
+## não teria como provar que o texto da fraqueza virou mecânica de verdade.
+func _log_trait_notes(result: Dictionary) -> void:
+	for note: Variant in result.get("trait_notes", []):
+		var text := str(note).strip_edges()
+		if text != "":
+			log_lines.append("[color=#e8a13a]%s[/color]" % text)
 
 ## Deriva os eventos de público de um resultado de combate (regra única em
 ## CrowdSystem) e escreve cada variação no log.

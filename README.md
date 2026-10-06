@@ -64,6 +64,8 @@ O jogo gira em torno da **CIDADE** — agora um **cenário** com os locais clic�
 
 **Índice de Poder:** `round(STR×2,0 + ATT×1,5 + DEF×1,5 + AGI×1,5 + VIT×1,0 + CAR×0,5 + SOR×1,0 + NÍVEL×5,0)` — aparece na **apresentação** para os **dois** lados, para você comparar de relance quem leva vantagem (a tela de luta não mostra o índice).
 
+**Inimigos com identidade (a fraqueza morde):** cada inimigo de torneio tem um **traço** que muda o combate de verdade e o texto da apresentação **descreve exatamente esse efeito** — **Frágil** (+25% de dano de golpe pesado), **Lento** (−0,15 de esquiva e −10% de precisão), **Ágil** (+0,10 de esquiva), **Couraçado** (−20% de dano corpo a corpo, −0,10 de esquiva), **Vidro** (+15% de dano recebido e +10% causado) e **Fera** (+10% de dano causado). Quando o traço morde, a **luta escreve no log** (ex.: *"Frágil: +25% de dano"*, *"Lento: não conseguiu esquivar"*). O traço também entra no **Índice de Poder** (de −8 a +8) e na **odd da aposta** — assim a apresentação não mente sobre a dificuldade.
+
 **Ferimentos** (consequência de perder): perder uma luta tem **75% de chance** (90% se você levou crítico) de deixar uma **sequela** — Braço quebrado (−3 STR), Costela rachada (−4 VIT) e outros 5 modelos. O ferimento **conta de verdade** no próximo combate e **não sara sozinho**: descansar recupera vida, mas a sequela **só sai no médico** (ou com a poção de cura de ferimento). No máximo **2 ativos** ao mesmo tempo e nenhum deles zera um atributo.
 
 **Pechincha** (na loja): botão **PECHINCHAR (x%)** antes de comprar — a chance vem de **CAR e SOR** (CAR 5 ≈ 49%, CAR 40 ≈ 91%) e o desconto vai até **35%** (média medida: 3,7% com CAR 5, **31,9%** com CAR 40). Cada item só pode ser pechinchado **uma vez**, e **falhar trava** aquele item.

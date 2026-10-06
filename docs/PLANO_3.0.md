@@ -1,0 +1,226 @@
+# PLANO 3.0 — Arte procedural, torneio de verdade e as correções
+
+Documento de trabalho do dono do projeto. Cada item casa com um pedido seu (06/10/2026, segunda leva).
+**Nada aqui é executado antes do seu OK** — este plano é para revisão.
+
+---
+
+## 1. O que você pediu (checklist)
+
+| # | Pedido | Onde entra |
+| --- | --- | --- |
+| 1 | "Isso parece uma cidade? Cadê a imagem da cidade?" | §4.1 (arte da cidade) |
+| 2 | Bug: upar no torneio → distribuir pontos → vai para o menu principal e **reseta o torneio** | §3.1 — **bug confirmado, com a linha do código** |
+| 3 | "Mudança drástica": morrer no torneio **apaga o personagem** | §6 (permadeath) |
+| 4 | Mostrar **VOCÊ GANHOU / VOCÊ PERDEU** antes do resumo; resumo vira **modal** | §3.2 — **confirmado** |
+| 5 | Item só do **boss final**, e essa luta **bem evidente** | §5.1 |
+| 6 | Mais itens + **variações únicas só de torneio**, com **tier de dificuldade de drop**; **boss final aleatório**, drop atrelado à dificuldade | §5.2 / §5.3 |
+| 7 | Gerar sprites de **arenas, cidades, armas, armaduras**, efeito de ataque **com a arma na mão** e **projéteis** | §4 |
+| 8 | "Ajustar para ser **procedural** cada luta, arma, sprite e personagem" — montar o plano | §4 + §7 |
+
+---
+
+## 2. Diagnóstico do estado atual (com prova no código)
+
+**Arte que existe hoje** (não há nada de cidade, nem arma na mão):
+
+```
+assets/sprites/arena/    4 imagens  (arena_background.jpeg, arena_ground.jpeg, 2 muralhas)
+assets/sprites/hero/     ~4 PNGs 500x500  (pose parada, ataque, defesa...)
+assets/sprites/enemies/  ~4 PNGs 500x500
+assets/sprites/items/    ~13 PNGs
+assets/sprites/effects/  1 imagem
+assets/sprites/ui/       ~2 PNGs
+```
+
+A tela da cidade **não tem imagem própria**: ela reaproveita o piso e as muralhas da arena (era o único
+asset disponível e não era permitido baixar arte externa). Os 56 arquivos seguem **sem licença/origem
+documentada** (`assets/ATRIBUICOES.md` está vazio) — e o repositório é **público**. O plano resolve as duas
+coisas de uma vez: arte **gerada por nós**, com licença nossa, versionável.
+
+---
+
+## 3. Correções (as que já estão diagnosticadas)
+
+### 3.1 BUG — distribuir pontos no torneio reseta o torneio
+
+**Causa raiz encontrada** (2 pontos que se somam):
+
+- `scripts/ui/result_screen.gd:153` — quando você sobe de nível na luta, a tela de resultado cria o botão
+  `DISTRIBUIR PONTOS` que roteia para a tela de **personagem**.
+- `scripts/ui/app.gd:85-89` — a tela de personagem fecha em `show_city()`. Ou seja: você aloca os pontos e
+  **cai na CIDADE no meio do torneio**.
+- `scripts/ui/app.gd:58/73-75` — na cidade, `» Torneio Menor` chama `start_tournament()`, que **recomeça o
+  torneio na rodada 0** (o placar da rodada atual se perde), e `show_city()` ainda **não salva** enquanto o
+  torneio está ativo.
+
+**Correção proposta (3 regras, todas com teste):**
+
+1. `DISTRIBUIR PONTOS` durante o torneio abre o personagem em **modo "só pontos"** (painel/modal) e **volta
+   para a tela de resultado da rodada** — nunca para a cidade.
+2. **A cidade fica proibida durante um torneio**: qualquer rota para `show_city()` com `is_tournament()` é
+   redirecionada para a rodada em andamento (com um aviso "você está no torneio — Combate 2/4").
+3. `start_tournament()` **recusa reiniciar** um torneio em andamento; abandonar passa a exigir um botão
+   explícito **ABANDONAR TORNEIO** com confirmação (e registra a derrota no KD).
+
+### 3.2 Fim de luta: primeiro GANHOU/PERDEU, depois o resumo em modal
+
+Hoje a luta termina e a tela salta direto para o resumo. Correção:
+
+1. Ao cair o último golpe, a arena mostra um **cartaz grande** `VOCÊ VENCEU` / `VOCÊ PERDEU` (com o nome do
+   adversário e o número de rodadas), com o botão **CONTINUAR**.
+2. **CONTINUAR** abre o **resumo como modal por cima da arena** (caixa central, com rolagem própria se
+   precisar), em vez de trocar a tela inteira.
+3. Só a partir do modal o jogador escolhe o próximo passo (`PRÓXIMO COMBATE` / `SEGUIR` / `ACEITAR A DERROTA`),
+   mantendo o fluxo do torneio intacto.
+
+---
+
+## 4. Arte procedural (o coração do 3.0)
+
+### 4.1 Como (sem asset externo, sem licença de terceiro)
+
+Um **gerador de arte dentro do próprio Godot**, rodando headless:
+
+```
+godot --headless --path . -s res://tools/gen_assets.gd -- --seed 1234
+```
+
+- Desenha com a API `Image`/`ImageTexture` do engine e salva PNG em `assets/gen/`.
+- **Determinístico por seed**: o sprite de um item é `hash(id + raridade + seed)` — o mesmo item sempre gera a
+  mesma arte, e dá para regerar tudo a qualquer momento.
+- Um **manifesto** (`assets/gen/manifest.json`) diz qual PNG pertence a qual id; o jogo só lê o manifesto.
+- Nada de download, nada de arte de terceiro: **licença nossa**, versionável, e cada item/inimigo/cenário novo
+  já nasce com arte.
+
+**Limite honesto (importante):** isto é **arte estilizada gerada por código** (pixel-art/geométrica, com
+paletas e sombreamento por procedimento), **não** ilustração pintada. Neste ambiente eu não tenho gerador de
+imagem por IA. Se o alvo é o acabamento "pintado" da referência do Swords and Sandals, o caminho é você me
+passar as imagens (ou autorizar um gerador de imagem externo) — e o resto do pipeline continua valendo.
+
+### 4.2 O que será gerado
+
+| Alvo | O que sai | Detalhe |
+| --- | --- | --- |
+| **Cidades** | 3 cenários completos (praça com muralhas, prédios, tochas, silhueta de plateia) | um por faixa de rank (Areia/Pedra · Ferro/Aço · Prata+), com parallax em 3 camadas |
+| **Arenas** | 3 a 5 cenários de luta por faixa (areia, cascalho, areia molhada, noturna com tochas) | o cenário da luta passa a ser **sorteado por luta**, casado com a faixa de rank |
+| **Gladiador** | corpo em **camadas** (cabeça, tronco, braços, pernas) com cor de pele/cabelo/porte por seed | a **peça equipada aparece no corpo**: peitoral, capacete, luva, bota, cinto |
+| **Arma na mão** | a arma equipada é **composta na mão** do gladiador, no sprite parado e no de ataque | responde ao seu pedido de "efeito dos ataques com a arma nas mãos" |
+| **Armas** | espadas, adagas, machados, lanças, arcos, bestas, arremesso | 3 a 5 silhuetas por classe, tingidas pela **raridade** |
+| **Armaduras** | peitorais, capacetes, luvas, botas, cintos | mesma regra: silhueta procedural + tinta de raridade |
+| **Efeitos** | arco de corte (3 quadros), impacto, faísca de aparo, rastro de esquiva, sangue/poeira | sobrepostos na luta no momento da resolução |
+| **Projéteis** | flecha, virote, faca de arremesso — com rastro e rotação | para TIRO / TIRO CERTEIRO / BOMBARDEIO |
+| **Ícones de UI** | rank, ferimento, poção, pechincha, aposta | para o HUD e as telas |
+
+**Animações (escopo inicial):** parado (2 quadros), ataque (3: preparo, impacto, volta), aparar (1), levar
+golpe (1), cair (2). Andar/celebrar ficam para depois — digo abertamente que é a parte mais cara e a de menor
+retorno agora.
+
+### 4.3 Integração
+
+- `EnemySpriteResolver` / `ItemSpriteResolver` (novos) escolhem o PNG pelo **manifesto** (id + raridade + seed).
+- Os 56 assets atuais **não são apagados**: ficam como reserva e o manifesto decide; remoção só com o seu OK
+  (regra permanente).
+- Substituir nada em silêncio: cada troca de sprite sai em QA com antes/depois.
+
+---
+
+## 5. Torneio 3.0
+
+### 5.1 Item só do boss final, e o combate final evidente
+
+- Rodadas **1 a n−1**: só **ouro + XP** (o "item por rodada" da versão 1.6 sai, conforme você pediu).
+- Rodada **final**: vira um **COMBATE FINAL** —
+  - faixa vermelha/dourada no topo da arena e da apresentação com `COMBATE FINAL — <nome do boss>`;
+  - introdução própria do boss (apelido, descrição, fraqueza, provocação) e **música/tema visual** por cor;
+  - o log avisa "só aqui o troféu aparece".
+- **O item cai exclusivamente do boss final** (com o tier de drop dele, §5.3).
+
+### 5.2 Mais itens e variações únicas de torneio
+
+- **Pool base maior**: mais arquétipos por slot (4 a 6 silhuetas por classe de arma, 3 a 5 por peça de
+  armadura) e mais afixos (bônus por atributo, chance de crítico, resistência a Taunt, ouro por vitória...).
+- **Variações únicas (só de torneio)**: 8 itens **um-de-um-tipo**, com nome próprio e um **efeito exclusivo**
+  (ex.: `Manto do Público` — EXIBIR rende +50% e não deixa aberto; `Adaga da Viúva` — revida sempre que apara;
+  `Elmo do Imperador` — imune a Taunt). Não aparecem na loja, não são vendáveis e **só caem de boss**.
+- Cada torneio tem seu **conjunto de variações** (Menor / Maior / Grande), de modo que subir de torneio não é
+  "o mesmo prêmio mais forte".
+
+### 5.3 Boss final aleatório, drop pela dificuldade
+
+- Cada torneio sorteia o boss final de um **pool próprio do tier** (recomendo 6 candidatos por torneio, 18 no
+  total) — a luta final deixa de ser sempre a mesma.
+- Cada boss tem um **grau de dificuldade (1 a 5 ⭐)** visível na apresentação. O grau define a **tabela de drop**:
+
+| Grau | Comum | Incomum | Raro | Épico | Lendário (variação única) |
+| --- | --- | --- | --- | --- | --- |
+| 1 ⭐ | 55% | 25% | 12% | 6% | 2% |
+| 2 ⭐ | 40% | 28% | 18% | 10% | 4% |
+| 3 ⭐ | 28% | 30% | 24% | 13% | 5% |
+| 4 ⭐ | 15% | 28% | 30% | 19% | 8% |
+| 5 ⭐ | 10% | 22% | 32% | 26% | 10% |
+
+- Boss mais difícil = **mais chance de item melhor** (é o que dá sentido a escolher o torneio difícil).
+- O **tier do torneio** empurra a tabela para cima e o **rank do jogador** tem peso pequeno (para não virar
+  farm de lendário no torneio pequeno).
+- **Anti-farm/trava:** a chance de variação única é limitada por torneio e a mesma variação **não repete**
+  enquanto você não tiver todas (sem duplicata inútil).
+
+---
+
+## 6. Permadeath no torneio ("morreu, apagou")
+
+Regra pedida, e é a mais drástica do jogo — por isso ela vem com cinto de segurança:
+
+1. **Aviso obrigatório antes de entrar**: na apresentação do torneio, um aviso em vermelho
+   `MORTE NO TORNEIO = PERSONAGEM APAGADO`, com confirmação explícita (`ENTRAR MESMO ASSIM`).
+2. **Na derrota dentro do torneio**: o personagem é **apagado** (o save da campanha é removido) e a tela de
+   fim conta a história da queda: nome, rank/título, KD, torneios vencidos e o carrasco.
+3. **Arena Livre continua sem permadeath** (recomendo fortemente: com morte permanente em tudo, o jogo fica
+   impossível de aprender — a arena livre é onde se testa build).
+4. **Mural dos caídos** (recomendo): guardamos um registro **local** dos personagens mortos (nome, rank, KD,
+   torneio, carrasco) para você ver o histórico. O personagem continua apagado — só não perdemos a estatística.
+5. O save é apagado de verdade: **isso precisa do seu OK explícito** (é o item mais irreversível do plano).
+
+---
+
+## 7. "Procedural em tudo" — o que muda no motor do jogo
+
+Hoje já é procedural: **luta/inimigo** (escala por nível/tier), **item gerado** (nome, raridade, bônus),
+**torneio** (rodadas e slots), **loja** (estoque rerolável), **público/rank**. O 3.0 fecha o ciclo:
+
+- **Cada luta**: cenário sorteado (por faixa de rank), plateia/iluminação, clima do público, boss quando é final.
+- **Cada arma/armadura**: sprite gerado (silhueta + raridade + tinta), coerente com o item que o gerador criou.
+- **Cada personagem**: gladiador em camadas, com a sua cor de pele/porte e o seu equipamento visível.
+- **Cada cidade**: 3 cenários por faixa de rank, com os locais ancorados.
+- **Semente única por campanha**: a mesma campanha sempre gera os mesmos inimigos e cenários (reprodutível),
+  e uma campanha nova gera um mundo novo.
+
+---
+
+## 8. Ordem de entrega (cada etapa com teste + QA e commit na `main`)
+
+| Etapa | Conteúdo | Critério de aceite |
+| --- | --- | --- |
+| **6** | §3.1 bug do torneio/pontos + §3.2 GANHOU/PERDEU + resumo em modal | reproduzir o bug antes e depois na QA (o torneio **não** reinicia ao distribuir pontos); cartaz antes do resumo |
+| **7** | Gerador de arte + **cidades e arenas** geradas (§4.1/4.2) | `gen_assets.gd` roda headless e produz os PNGs; cidade com imagem de verdade na QA; 3 cenários por faixa |
+| **8** | Gladiador em camadas + **arma na mão** + armaduras no corpo + efeitos + projéteis | QA com print do gladiador equipado e do ataque com arma e projétil |
+| **9** | Itens: pool maior + **variações únicas** + tiers §5.3 | teste de tabela de drop por grau (seed fixa) + variações fora da loja |
+| **10** | Boss final **aleatório** + **COMBATE FINAL** evidente + item só do boss (§5.1/5.3) | sorteio cobrindo o pool, nenhum item em rodada 1..n−1, marcação clara na tela |
+| **11** | **Permadeath** no torneio + Mural dos caídos (§6) | aviso e confirmação, personagem apagado na derrota, arena livre intacta |
+
+Depois da 11: rebalanceamento final remedido (a economia e a curva são novamente medidas e registradas no
+`BALANCEAMENTO.md`) — é o fecho do 3.0.
+
+---
+
+## 9. Decisões que eu preciso de você
+
+1. **Arte**: aceitar arte **gerada por código** (§4.1, com o limite honesto) — **recomendo começar por ela**,
+   porque destrava tudo e é licença nossa; se depois você quiser pintura, trocamos o gerador mantendo o resto.
+2. **Permadeath só no torneio** e **arena livre sem morte permanente** — recomendo firme.
+3. **Save apagado de verdade** na morte do torneio, com o **Mural dos caídos** guardando a estatística —
+   confirma? (item irreversível)
+4. **Quantas cidades**: 3 por faixa de rank (recomendo) ou uma para cada torneio (5).
+5. **Variações únicas**: 8 no total (recomendo) ou uma por boss (18).
+6. **O "item por rodada" da 1.6 sai de vez** — só o boss final dropa (você já pediu; confirmo na volta).

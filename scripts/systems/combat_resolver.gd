@@ -2,6 +2,7 @@ class_name CombatResolver
 extends RefCounted
 
 const GladiatorDataScript := preload("res://scripts/models/gladiator_data.gd")
+const TraitSystemScript := preload("res://scripts/systems/trait_system.gd")
 
 ## DEFESA FIRME: reduz o dano recebido no turno seguinte. Cada ponto vale 5% de
 ## redução (o valor 6 = 30% de redução), com teto de 60%.
@@ -249,16 +250,20 @@ static func _find_item_by_id(items: Array, item_id: String) -> Dictionary:
 # --- Fórmulas de combate ---------------------------------------------------
 
 ## Chance de acertar (antes da esquiva): precisão da ação + ATT do atacante.
+## O TRAÇO do atacante multiplica a precisão (Lento = −10%): item 8.
 static func accuracy_for(attacker, base_accuracy: float) -> float:
 	if attacker == null:
 		return clampf(base_accuracy, 0.0, 1.0)
-	return clampf(base_accuracy + float(attacker.attack) * ACC_PER_ATT, 0.0, 1.0)
+	var base := base_accuracy + float(attacker.attack) * ACC_PER_ATT
+	return clampf(base * TraitSystemScript.accuracy_multiplier(attacker), 0.0, 1.0)
 
-## Chance de ESQUIVA do alvo (AGI).
+## Chance de ESQUIVA do alvo (AGI). O TRAÇO soma o modificador de esquiva
+## (Lento −0,15, Couraçado −0,10, Ágil +0,10): item 8.
 static func dodge_chance(defender) -> float:
 	if defender == null:
 		return 0.0
-	return clampf(float(defender.agility) * DODGE_PER_AGI, 0.0, DODGE_CAP)
+	var chance := float(defender.agility) * DODGE_PER_AGI + TraitSystemScript.dodge_modifier(defender)
+	return clampf(chance, 0.0, DODGE_CAP)
 
 ## Chance de AUTO-DEFESA do alvo (DEF): aparta parte do golpe.
 static func block_chance(defender) -> float:
@@ -274,35 +279,50 @@ static func critical_chance(attacker) -> float:
 
 ## Resolve UM ataque com o feedback pedido, campo por campo:
 ##  {hit, missed, dodged, blocked, blocked_amount, damage, entered,
-##   armour_damage, health_damage, critical, out_of_range}
+##   armour_damage, health_damage, critical, out_of_range, trait_notes}
 ## Ordem: (1) precisão pelo ATT; (2) esquiva pela AGI; (3) dano por STR vs DEF
 ## (crítico pela SORTE); (4) auto-defesa pela DEF ("aparou X, entrou Y");
 ## (5) DEFESA FIRME (guard_bonus) reduz o que entra; (6) a armadura absorve antes
 ## da vida.
-static func resolve_attack(attacker, defender, multiplier: float = 1.0, accuracy: float = 1.0, guard_bonus: int = 0) -> Dictionary:
+##
+## TRAÇOS DE COMBATE (item 8): `attack_id`/`attack_kind` descrevem a AÇÃO (ex.:
+## "golpe_forte" é um golpe pesado; "ranged" não é melee) para que o traço do
+## atacante (dano causado) e o do alvo (dano recebido) mordam. Cada mordida entra
+## em `trait_notes`, que a arena imprime no log. Chamadas antigas (sem attack_id)
+## tratam o ataque como melee comum: esquiva/precisão/dano-melee continuam
+## valendo; o bônus de GOLPE PESADO (Frágil) só dispara com o id correto.
+static func resolve_attack(attacker, defender, multiplier: float = 1.0, accuracy: float = 1.0, guard_bonus: int = 0, attack_id: String = "", attack_kind: String = "melee") -> Dictionary:
 	var result := {
 		"hit": false, "missed": false, "dodged": false, "blocked": false,
 		"blocked_amount": 0, "damage": 0, "entered": 0, "armour_damage": 0,
 		"health_damage": 0, "critical": false, "out_of_range": false,
 		"countered": false, "counter_damage": 0, "counter_armour_damage": 0,
-		"counter_health_damage": 0,
+		"counter_health_damage": 0, "trait_notes": [],
 	}
 	if attacker == null or defender == null:
 		return result
+	var is_melee := attack_kind != "ranged"
+	var is_heavy := TraitSystemScript.is_heavy_attack(attack_id)
 	# (1) Precisão: o ATT do atacante define se o golpe acerta de saída.
 	if randf() > accuracy_for(attacker, accuracy):
 		result["missed"] = true
+		_append_trait_note(result, TraitSystemScript.accuracy_miss_note(attacker))
 		return result
 	# (2) Esquiva: a AGI do alvo pode anular o golpe. Quem dormiu (vulnerável) não esquiva.
 	var vulnerable := bool(defender.vulnerable)
 	if not vulnerable and randf() < dodge_chance(defender):
 		result["dodged"] = true
+		_append_trait_note(result, TraitSystemScript.dodge_note(defender))
 		return result
 	# (3) Dano: STR x multiplicador - mitigação direta da DEF; crítico pela SORTE.
 	var critical := randf() < critical_chance(attacker)
 	var raw_damage: float = float(attacker.strength) * multiplier + float(randi_range(-3, 4)) - (float(defender.defence) * DEF_MITIGATION)
 	if critical:
 		raw_damage *= CRIT_MULTIPLIER
+	# TRAÇOS no dano: o traço do atacante multiplica o que ele CAUSA; o do alvo, o
+	# que ele RECEBE (Frágil +25% em golpe pesado, Couraçado −20% melee, Vidro +15%).
+	raw_damage *= TraitSystemScript.damage_dealt_multiplier(attacker)
+	raw_damage *= TraitSystemScript.damage_taken_multiplier(defender, is_melee, is_heavy)
 	var damage := maxi(1, roundi(raw_damage))
 	# (4) DEFESA FIRME do turno anterior reduz o dano que chega a entrar.
 	if guard_bonus > 0:
@@ -324,6 +344,10 @@ static func resolve_attack(attacker, defender, multiplier: float = 1.0, accuracy
 	result["entered"] = entered
 	result["armour_damage"] = int(split.get("armour", 0))
 	result["health_damage"] = int(split.get("health", 0))
+	# TRAÇOS: registra as mordidas no log (fraqueza do alvo e/ou bônus do atacante).
+	_append_trait_note(result, TraitSystemScript.taken_note(defender, is_melee, is_heavy))
+	_append_trait_note(result, TraitSystemScript.dealt_note(attacker))
+	_append_trait_note(result, TraitSystemScript.dodge_fail_note(defender))
 	# (7) REVIDAR: quem aparou pode contra-atacar devolvendo parte do aparado ao
 	# atacante (o contra-golpe é MENOR que o golpe original). Isso alimenta o
 	# evento +5 da felicidade do público.
@@ -336,6 +360,14 @@ static func resolve_attack(attacker, defender, multiplier: float = 1.0, accuracy
 		result["counter_armour_damage"] = int(counter_split.get("armour", 0))
 		result["counter_health_damage"] = int(counter_split.get("health", 0))
 	return result
+
+## Anexa um aviso de traço ao resultado (ignora vazio e duplicado).
+static func _append_trait_note(result: Dictionary, note: String) -> void:
+	if note == "":
+		return
+	var notes: Array = result["trait_notes"]
+	if not notes.has(note):
+		notes.append(note)
 
 static func enemy_for_level(level: int, template: Dictionary):
 	# Escala do torneio: mais suave que a Arena Livre porque o torneio soma
@@ -356,6 +388,8 @@ static func enemy_for_level(level: int, template: Dictionary):
 		"base_charisma": int(template.get("base_luck", 4)) + (safe_level - 1) * 2,
 		"base_luck": int(template.get("base_luck", 4)) + (safe_level - 1) * 2,
 		"boss": bool(template.get("boss", false)),
+		# TRAÇO de combate (item 8): id do catálogo de TraitSystem; "" sem traço.
+		"trait": str(template.get("trait", "")),
 	})
 
 ## Decisão simples do inimigo: 22% de chance de golpe arriscado, senão ataque normal.
@@ -430,11 +464,12 @@ static func ranged_accuracy(accuracy: float, distance: int) -> float:
 	return ranged_accuracy_scaled(accuracy, distance, 1.0)
 
 ## Ataque que respeita alcance e distância. Melee fora do alcance não acerta;
-## ranged aplica a penalidade de distância na precisão.
-static func resolve_positional_attack(attacker, defender, weapon: Dictionary, distance: int, multiplier: float = 1.0, accuracy: float = 1.0, guard_bonus: int = 0, penalty_scale: float = 1.0) -> Dictionary:
+## ranged aplica a penalidade de distância na precisão. `attack_id` e o tipo da
+## arma alimentam os TRAÇOS (item 8): golpe pesado e/ou melee.
+static func resolve_positional_attack(attacker, defender, weapon: Dictionary, distance: int, multiplier: float = 1.0, accuracy: float = 1.0, guard_bonus: int = 0, penalty_scale: float = 1.0, attack_id: String = "") -> Dictionary:
 	if not can_attack_at(distance, weapon):
-		return {"hit": false, "missed": false, "dodged": false, "blocked": false, "blocked_amount": 0, "damage": 0, "entered": 0, "armour_damage": 0, "health_damage": 0, "critical": false, "out_of_range": true, "countered": false, "counter_damage": 0, "counter_armour_damage": 0, "counter_health_damage": 0}
+		return {"hit": false, "missed": false, "dodged": false, "blocked": false, "blocked_amount": 0, "damage": 0, "entered": 0, "armour_damage": 0, "health_damage": 0, "critical": false, "out_of_range": true, "countered": false, "counter_damage": 0, "counter_armour_damage": 0, "counter_health_damage": 0, "trait_notes": []}
 	var effective_accuracy := accuracy
 	if weapon_kind(weapon) == "ranged":
 		effective_accuracy = ranged_accuracy_scaled(accuracy, distance, penalty_scale)
-	return resolve_attack(attacker, defender, multiplier, effective_accuracy, guard_bonus)
+	return resolve_attack(attacker, defender, multiplier, effective_accuracy, guard_bonus, attack_id, weapon_kind(weapon))

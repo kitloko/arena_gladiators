@@ -7,6 +7,7 @@ extends Node
 const MainScene := preload("res://Main.tscn")
 const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
 const ContentRepositoryScript := preload("res://scripts/repositories/content_repository.gd")
+const TraitSystemScript := preload("res://scripts/systems/trait_system.gd")
 
 var _failures: int = 0
 
@@ -75,6 +76,10 @@ func _run_test() -> void:
 	_check(_find_label_contains(app, "VS") != null, "apresentação mostra o VS entre os lutadores")
 	_check(_find_label_contains(app, "ÍNDICE DE PODER") != null, "apresentação mostra o ÍNDICE DE PODER")
 	_check(_find_button(app, "ENTRAR NA ARENA") != null, "botão ENTRAR NA ARENA presente")
+	# A fraqueza declarada aparece na apresentação (item 8: o texto tem de existir
+	# e casar com o traço que o combate vai aplicar). Inimigo procedural da Arena
+	# Livre não tem traço — a reserva genérica declara "Nenhum ponto fraco".
+	_check(_find_label_contains(app, "Fraqueza:") != null, "apresentação mostra a linha de fraqueza declarada")
 	var presented_foe := str(GameState.current_enemy.display_name)
 	_press_button(app, "ENTRAR NA ARENA")
 	await get_tree().create_timer(0.5).timeout
@@ -307,6 +312,12 @@ func _run_test() -> void:
 	_check(_find_by_method(app, "enter_arena") != null and GameState.is_tournament(), "o torneio também passa pela apresentação antes da luta")
 	_check(_find_by_method(app, "start_new_fight") == null, "torneio: o combate não começa antes do clique")
 	_check(_find_label_contains(app, "VS") != null and _find_label_contains(app, "ÍNDICE DE PODER") != null, "apresentação do torneio mostra o VS e o ÍNDICE DE PODER")
+	# O adversário do torneio vem de um template COM traço: a fraqueza mostrada tem
+	# de nomear exatamente o traço que o combate vai aplicar (item 8).
+	var tourney_foe_id := str(GameState.current_enemy.id) if GameState.current_enemy != null else ""
+	var tourney_template := ContentRepositoryScript.find_enemy(ContentRepositoryScript.load_enemies(), tourney_foe_id)
+	var expected_trait_label := TraitSystemScript.label_for(str(tourney_template.get("trait", "")))
+	_check(expected_trait_label != "" and _find_label_contains(app, expected_trait_label) != null, "apresentação do torneio declara a fraqueza do traço do adversário ('%s')" % expected_trait_label)
 	_press_button(app, "ENTRAR NA ARENA")
 	await get_tree().create_timer(0.5).timeout
 	_check(_find_by_method(app, "start_new_fight") != null, "torneio: ENTRAR NA ARENA inicia o combate")
@@ -324,6 +335,12 @@ func _run_test() -> void:
 	_check(GameState.consumable_count() == consumables_before - 1, "usar a poção CONSOME o item (%d → %d)" % [consumables_before, GameState.consumable_count()])
 	if arena_potion != null and arena_potion.fight_active:
 		_check(int(arena_potion.round_number) > round_before_potion, "usar a poção gasta o TURNO (rodada %d → %d)" % [round_before_potion, int(arena_potion.round_number)])
+	# O log da luta imprime o aviso do traço quando ele morde (item 8): a arena
+	# consome os `trait_notes` que o CombatResolver devolve em cada ataque.
+	if arena_potion != null:
+		var fake_result := {"trait_notes": ["Frágil: +25% de dano"], "hit": true, "dodged": false, "blocked": false, "blocked_amount": 0, "entered": 1, "critical": false, "health_damage": 1, "armour_damage": 0, "damage": 1, "counter_health_damage": 0}
+		arena_potion._apply_combat_result(GameState.player, GameState.current_enemy, "teste de traço", fake_result)
+		_check(str(arena_potion.log_lines).contains("Frágil: +25% de dano"), "a arena imprime o aviso do traço no log de combate")
 	GameState.finish_tournament()
 	GameState.clear_save()
 	_finish()

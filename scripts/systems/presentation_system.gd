@@ -20,6 +20,7 @@ extends RefCounted
 ## Arena Livre), cai na reserva genérica. O jogador também provoca (reserva dele).
 
 const ContentRepositoryScript := preload("res://scripts/repositories/content_repository.gd")
+const TraitSystemScript := preload("res://scripts/systems/trait_system.gd")
 
 ## Pesos do Índice de Poder (ver cabeçalho).
 const POWER_STR := 2.0
@@ -30,6 +31,12 @@ const POWER_VIT := 1.0
 const POWER_CHA := 0.5
 const POWER_LUK := 1.0
 const POWER_LEVEL := 5.0
+
+## O TRAÇO de combate (item 8) soma um peso PEQUENO e documentado ao Índice de
+## Poder, senão a apresentação mentiria sobre a dificuldade: um Fraco (Frágil,
+## Lento) tem de aparecer abaixo de um forte (Ágil, Fera, Couraçado). O peso mora
+## em TraitSystem.CATALOG (power_weight): −6 Frágil, −8 Lento, +6 Ágil,
+## +6 Couraçado, +2 Vidro, +8 Fera. Para escala, 1 STR vale 2,0 no índice.
 
 ## Ordem canônica dos 7 atributos exibidos na comparação (id, sigla, título).
 const ATTRIBUTES := [
@@ -65,7 +72,7 @@ const GENERIC_ENEMY_TAUNTS := [
 	"Vamos ver se a sua coragem durou a viagem.",
 ]
 
-## Índice de Poder de um lutador (soma ponderada dos 7 atributos + nível).
+## Índice de Poder de um lutador (soma ponderada dos 7 atributos + nível + traço).
 static func power_index(fighter) -> int:
 	if fighter == null:
 		return 0
@@ -78,6 +85,8 @@ static func power_index(fighter) -> int:
 	total += float(fighter.charisma) * POWER_CHA
 	total += float(fighter.luck) * POWER_LUK
 	total += float(fighter.level) * POWER_LEVEL
+	# O TRAÇO de combate é um peso pequeno (pode ser negativo) — ver cabeçalho.
+	total += float(TraitSystemScript.power_weight(fighter))
 	return maxi(0, roundi(total))
 
 ## Valor de um atributo pelo id ("strength".."luck"); 0 para lutador nulo.
@@ -119,6 +128,7 @@ static func identity_from_template(template: Dictionary) -> Dictionary:
 		"nickname": str(template.get("nickname", GENERIC_ENEMY_NICKNAME)),
 		"description": str(template.get("description", GENERIC_ENEMY_DESCRIPTION)),
 		"weakness": str(template.get("weakness", GENERIC_ENEMY_WEAKNESS)),
+		"trait": str(template.get("trait", "")),
 		"taunts": taunts,
 	}
 
