@@ -122,7 +122,7 @@ evidência arquivada e **commit direto na `main`** (exceção combinada para est
 | --- | --- | --- |
 | **1** ✅ | A (**7 atributos**) + 1 (pontos no nível) + E (armadura como reserva, esquiva, auto-defesa com 'aparou X, entrou Y') + 7 (ações nomeadas) + C (Taunt) + D (Sleep) | regras PASS (testes novos por atributo e por ação); balanceamento PASS sem afrouxar critérios (Arena Livre alta no nível 1, sem desabar; 3 torneios concluíveis em dificuldade crescente); fluxo PASS; duas barras na tela de luta; save antigo migrado |
 | **2** ✅ | H (felicidade do público + EXIBIR + multiplicador) | eventos mexendo a barra (teste por evento); ×1,0 a ×2,0; ≤3 ações não multiplica; **teste anti-exploit** (spam de EXIBIR / fuga não rendem mais ouro por hora); linha do público no resultado |
-| **3** | I (rank/KD + títulos + acesso por rank) + B (cidade cenário) + 9 (arenas por faixa) | rank sobe/desce conforme a força do adversário; **farm não chega ao topo**; rebaixa ao cair do piso; destino trancado com motivo; arena mais lotada eleva a felicidade inicial; cidade navegável por cenário |
+| **3** ✅ | I (rank/KD + títulos + acesso por rank) + B (cidade cenário) + 9 (arenas por faixa) | rank sobe/desce conforme a força do adversário; **farm não chega ao topo**; rebaixa ao cair do piso; destino trancado com motivo; arena mais lotada eleva a felicidade inicial; cidade navegável por cenário |
 | **4** | F (apresentação + comparação antes da luta) + G (apelidos/identidade) | tela aparece antes da luta com as estatísticas comparadas e o Índice de Poder; ENTRAR NA ARENA inicia o combate; provocação sorteada |
 | **5** | 2 (ferimentos) + 4 (pechincha) + 5 (apostas) + 6 (poções em combate) + 10 (médico/ferreiro/treinador) | cada mecânica com teste próprio e efeito medido; economia final remedida (ouro por hora dentro do esperado) |
 
@@ -216,3 +216,46 @@ no topo com a % (48%, 56%, 53% conforme o carisma dos envolvidos), botão **EXIB
 log com a variação por evento (*"Público −6 (arena fria) → 39%"*, *"Público +2 (acerto) → 41%"*), multiplicador
 final calculado (×1,55 e ×1,73) e a linha **"Público: 57% → recompensa ×1,6"** na tela de resultado. A esquiva
 apareceu em jogo (*ERROU* registrado) e as duas barras de VIDA/ARMADURA seguem na tela.
+
+---
+
+## Resultado da etapa 3 — medido (06/10/2026, commit `22cada4`)
+
+**Fórmulas do rank** (em `scripts/systems/rank_system.gd`, faixas em `data/ranks.json`):
+
+| Regra | Fórmula |
+| --- | --- |
+| Rating do adversário | `nível × 250 + (tier − 1) × 120 + (chefe ? 300)` |
+| Esperado (probabilidade) | `1 / (1 + 10^((rating − seus_pontos) / 250))` |
+| Ganho na vitória | `round(60 × (1 − esperado))`, **piso 0** (vencer muito mais fraco não paga) |
+| Perda na derrota | `max(5, round(60 × esperado))` (perder para rank menor dói mais) |
+| Faixas | Areia 0 · Pedra 200 · Ferro 500 · Aço 900 · Prata 1.500 · Ouro 2.300 · Campeão 3.500 · Lenda 5.000 (rebaixa ao cair do piso) |
+| Acesso | Arena Livre 0 · Torneio Menor 200 (Pedra) · Maior 900 (Aço) · Grande 2.300 (Ouro) |
+| Público por rank | início **+3 por faixa** (teto do início `70 + 4×faixa`), teto do multiplicador **`2,0 + 0,05×faixa`** |
+| Faixas de arena | ouro **×1,0 / ×1,2 / ×1,45** e risco **+0 / +1 / +2 níveis** |
+
+**Anti-farm (o número que importa):** 500 vitórias na arena fraca dão **769 pontos (Ferro)**; mais **1.500
+vitórias somam ≤ 5 pontos** (satura — não chega a Prata/Ouro/Lenda). Enfrentando adversários progressivamente
+mais fortes, as mesmas 500 lutas rendem **4.153 pontos**. Vencer mais fraco: +55 → **0**; perder para alguém de
+rank muito menor: **−55 a −60**.
+
+**Tabela de ganho medido**
+
+| Seus pontos | vs Nv1 | vs Nv5 | vs Nv10 | vs Nv15 |
+| --- | --- | --- | --- | --- |
+| 0 | +55 | +60 | +60 | +60 |
+| 500 | +5 | +60 | +60 | +60 |
+| 1.500 | **0** | +5 | +60 | +60 |
+| 3.000 | 0 | 0 | +1 | +60 |
+
+**QA com o jogo aberto** (25 telas em `/root/workspace/docs/arena-gladiadores/qa22/`): a cidade em **Areia** mostra
+os três torneios **trancados com o motivo** (*"» Torneio Menor — TRANCADO (Precisa de rank Pedra — você está em
+Areia)"*), e depois de elevar o rank os três **destravam** (0 trancados); o resultado mostra
+**"RANK: Areia — 55 pts (+55)"**; a tela do personagem mostra **"RANK Ouro (2440 pts — faltam 1060 pts para
+Campeão) · KD 1 V / 1 D"**; e a arena de Ouro já começa com **71% de público** (a base era 48% em Areia),
+confirmando que o rank enche a casa.
+
+**Observação honesta sobre a cidade:** o cenário usa os **únicos assets que existem** (o piso e as muralhas da
+arena) — ou seja, é uma praça com textura, **não** uma cidade desenhada com prédios como na sua referência.
+Para chegar naquela arte é preciso uma imagem de fundo nova; dá para gerar uma proceduralmente (desenhada por
+código, estilo estilizado) ou você fornece o wallpaper.
