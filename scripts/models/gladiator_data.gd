@@ -1,6 +1,8 @@
 class_name GladiatorData
 extends RefCounted
 
+const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
+
 ## Fonte única de dados de um lutador.
 ## - base_* são as estatísticas permanentes (criação + escolhas de nível).
 ## - attack/defense/luck/max_health são derivados (base + soma do equipamento).
@@ -160,6 +162,44 @@ func _register_owned(item_id: String) -> void:
 		return
 	owned_item_ids.append(item_id)
 
+## Desequipa um slot: o item volta para a bolsa (continua em owned_item_ids).
+func unequip(slot: String) -> bool:
+	if not SLOT_ORDER.has(slot) or equipped_id(slot) == "":
+		return false
+	equipped[slot] = ""
+	_bonus[slot] = {"atk": 0, "def": 0, "luck": 0, "hp": 0}
+	recompute_derived()
+	return true
+
+## Tira um item da bolsa (venda). Recusa item equipado: desequipe antes.
+func remove_owned(item_id: String) -> bool:
+	if item_id == "" or not owned_item_ids.has(item_id) or _is_equipped(item_id):
+		return false
+	owned_item_ids.erase(item_id)
+	_catalog.erase(item_id)
+	return true
+
+func _is_equipped(item_id: String) -> bool:
+	for slot: String in SLOT_ORDER:
+		if equipped_id(slot) == item_id:
+			return true
+	return false
+
+func is_equipped(item_id: String) -> bool:
+	return _is_equipped(item_id)
+
+## Itens da bolsa (comprados ou ganhos e NÃO equipados), na ordem de aquisição.
+func bag_items() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for entry: Variant in owned_item_ids:
+		var item_id := str(entry)
+		if item_id == "" or _is_equipped(item_id):
+			continue
+		var item := catalog_item(item_id)
+		if not item.is_empty():
+			result.append(item)
+	return result
+
 func owns_item(item_id: String) -> bool:
 	return owned_item_ids.has(item_id)
 
@@ -175,7 +215,7 @@ func receive_damage(amount: int) -> int:
 	return applied_damage
 
 func required_experience() -> int:
-	return 50 + (level - 1) * 25
+	return EconomySystemScript.required_experience(level)
 
 ## Acumula XP e marca níveis pendentes; o jogador escolhe o treino na tela de
 ## resultado (apply_level_up). Retorna true se algum nível foi ganho.

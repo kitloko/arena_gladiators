@@ -20,6 +20,8 @@ var campaign_lost: bool = false
 var penalty: int = 0
 var tournament: bool = false
 var prize: int = 0
+## Itens ganhos na luta (prêmio de rodada de torneio e/ou item único do campeão).
+var loot: Array[Dictionary] = []
 
 func _init(p_victory: bool = false, p_rounds: int = 1) -> void:
 	victory = p_victory

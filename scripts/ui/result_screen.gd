@@ -9,6 +9,7 @@ extends Control
 signal action_requested(action: String)
 
 const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
+const ItemGeneratorScript := preload("res://scripts/systems/item_generator.gd")
 
 const BACKGROUND := Color("14111c")
 const PANEL := Color("272033")
@@ -25,6 +26,8 @@ var _result
 var _title: Label
 var _body: VBoxContainer
 var _rest_dialog: Control = null
+## Contador para dar nome único a cada ficha de prêmio (o QA conta por prefixo).
+var _loot_card_index: int = 0
 
 func _ready() -> void:
 	_build_interface()
@@ -88,6 +91,7 @@ func _on_level_up_chosen() -> void:
 	_render.call_deferred()
 
 func _render_summary() -> void:
+	_loot_card_index = 0
 	var victory: bool = bool(_result.victory)
 	_title.text = "VITÓRIA" if victory else "DERROTA"
 	_title.add_theme_color_override("font_color", GREEN if victory else RED)
@@ -128,12 +132,19 @@ func _render_summary() -> void:
 	lines.append("[color=#cdbfd5]Dano causado: %d    Dano sofrido: %d[/color]" % [int(_result.damage_dealt), int(_result.damage_taken)])
 	var summary := RichTextLabel.new()
 	summary.bbcode_enabled = true
-	summary.custom_minimum_size = Vector2(0, 200)
+	summary.custom_minimum_size = Vector2(0, 170 if not _result.loot.is_empty() else 200)
 	summary.add_theme_font_size_override("normal_font_size", 17)
 	summary.add_theme_color_override("default_color", MUTED)
 	summary.add_theme_stylebox_override("normal", _panel_style(PANEL_DARK, 10, 20))
 	summary.text = "\n".join(lines)
 	_body.add_child(summary)
+	# Prêmios de item: o torneio dava item sem mostrar nada (o único era equipado
+	# em silêncio). Aqui vai a ficha do que entrou na bolsa.
+	if victory and not _result.loot.is_empty():
+		_body.add_child(_make_label("PRÊMIO DE ITEM — já está na sua bolsa", 15, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+		for entry: Dictionary in _result.loot:
+			_body.add_child(_make_item_card(entry, _loot_card_index))
+			_loot_card_index += 1
 	if tournament and victory and bool(_result.campaign_cleared):
 		_add_action_button("CONCLUIR TORNEIO", GOLD, "end_victory")
 	elif tournament and victory:
@@ -241,6 +252,63 @@ func _close_rest_dialog() -> void:
 	if _rest_dialog != null:
 		_rest_dialog.queue_free()
 		_rest_dialog = null
+
+## Ficha compacta do item ganho: nome, raridade, nível e bônus.
+func _make_item_card(item: Dictionary, index: int) -> PanelContainer:
+	var panel := PanelContainer.new()
+	# Nome único por ficha (prefixo contado pelo QA): nomes repetidos o Godot
+	# renomeia para "@Node@2".
+	panel.name = "itemcard_%d" % index
+	var rarity_color := Color(str(item.get("rarity_color", "f5c451")))
+	panel.add_theme_stylebox_override("panel", _panel_style(PANEL_DARK, 8, 10))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	panel.add_child(row)
+	var icon := _icon_rect(item, 30)
+	if icon != null:
+		row.add_child(icon)
+	var line := RichTextLabel.new()
+	line.bbcode_enabled = true
+	line.fit_content = true
+	line.scroll_active = false
+	line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	line.add_theme_font_size_override("normal_font_size", 15)
+	line.add_theme_color_override("default_color", rarity_color)
+	var rarity_tag := str(item.get("rarity", "Comum"))
+	if bool(item.get("unique", false)):
+		rarity_tag += "   •   ITEM ÚNICO"
+	line.text = "%s   [color=#bbaec1]%s • nível %d[/color]\n[color=#79cf7b]%s[/color]" % [
+		str(item.get("display_name", "Item")), rarity_tag, int(item.get("level", 1)), _bonus_text(item),
+	]
+	row.add_child(line)
+	return panel
+
+## TextureRect com o ícone do item, ou null se não houver arquivo.
+func _icon_rect(item: Dictionary, size: int) -> TextureRect:
+	var path := ItemGeneratorScript.item_icon_path(item)
+	if path == "" or not ResourceLoader.exists(path):
+		return null
+	var rect := TextureRect.new()
+	rect.texture = load(path)
+	rect.custom_minimum_size = Vector2(size, size)
+	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return rect
+
+func _bonus_text(item: Dictionary) -> String:
+	var parts: Array[String] = []
+	if int(item.get("attack_bonus", 0)) > 0:
+		parts.append("ATQ+%d" % int(item.get("attack_bonus", 0)))
+	if int(item.get("defense_bonus", 0)) > 0:
+		parts.append("DEF+%d" % int(item.get("defense_bonus", 0)))
+	if int(item.get("luck_bonus", 0)) > 0:
+		parts.append("SORTE+%d" % int(item.get("luck_bonus", 0)))
+	if int(item.get("health_bonus", 0)) > 0:
+		parts.append("VIDA+%d" % int(item.get("health_bonus", 0)))
+	if parts.is_empty():
+		return "sem bônus"
+	return "  ".join(parts)
 
 func _make_label(text_value: String, size: int, color: Color, alignment := HORIZONTAL_ALIGNMENT_LEFT) -> Label:
 	var label := Label.new()

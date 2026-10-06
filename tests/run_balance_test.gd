@@ -13,7 +13,8 @@ extends SceneTree
 ## Modelo (simplificado de propósito, declarado para não enganar ninguém):
 ##  - luta = troca de golpes corpo a corpo, vida cheia dos dois lados, jogador ataca primeiro;
 ##  - não modela posicionamento/alcance, defender/avançar/recuar nem os especiais dos chefes;
-##  - jogador recem-criado = distribuição neutra do jogo com 12 pontos (2 vida, 8 força, 2 defesa);
+##  - jogador recem-criado = distribuição dos pontos de criação (20 hoje) num build
+##    comum: 25% vida, 50% força, 20% defesa, resto em sorte;
 ##  - ganho de nível = alterna Força e Vigor (metade de cada) — jogador "casual";
 ##  - "com loja" = equipa a espada e o peitoral Comum do próprio nível (a opção de base da loja).
 ## Com seed fixa, o resultado é reprodutível.
@@ -222,15 +223,22 @@ func _mean_foe(level: int, items: Array) -> GladiatorData:
 		"base_defense": int(round(def_sum / 400.0)),
 	})
 
-## Personagem com a criação neutra do jogo. `geared` = comprou a espada e o
-## peitoral Comum do próprio nível (opção de base da loja procedural).
+## Personagem com a criação neutra do jogo, distribuindo os pontos disponíveis
+## (hoje 20) num build de jogador comum: um pouco mais de ataque que o resto.
+## `geared` = comprou a espada e o peitoral Comum do próprio nível.
 func _make_player(level: int, geared: bool) -> GladiatorData:
+	var points: int = EconomySystemScript.creation_points()
+	# 25% em vida, 50% em força, 20% em defesa, o resto em sorte (total = pontos).
+	var health_points := int(round(float(points) * 0.25))
+	var attack_points := int(round(float(points) * 0.5))
+	var defense_points := int(round(float(points) * 0.2))
+	var luck_points: int = maxi(0, points - health_points - attack_points - defense_points)
 	var player = GladiatorDataScript.new({
 		"id": "player", "display_name": "Teste", "level": 1,
-		"base_max_health": EconomySystemScript.neutral_total("health", {"health": 2}),
-		"base_attack": EconomySystemScript.neutral_total("attack", {"attack": 8}),
-		"base_defense": EconomySystemScript.neutral_total("defense", {"defense": 2}),
-		"base_luck": EconomySystemScript.neutral_total("luck", {"luck": 0}),
+		"base_max_health": EconomySystemScript.neutral_total("health", {"health": health_points}),
+		"base_attack": EconomySystemScript.neutral_total("attack", {"attack": attack_points}),
+		"base_defense": EconomySystemScript.neutral_total("defense", {"defense": defense_points}),
+		"base_luck": EconomySystemScript.neutral_total("luck", {"luck": luck_points}),
 	})
 	# Um nível = uma escolha de treino; jogador casual alterna Força e Vigor.
 	for i in (maxi(0, level - 1)):

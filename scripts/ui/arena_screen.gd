@@ -372,6 +372,10 @@ func win_fight() -> void:
 	result.campaign_cleared = bool(rewards.campaign_cleared)
 	result.tournament = bool(rewards.tournament)
 	result.prize = int(rewards.prize)
+	# Prêmios de item (torneio): a tela de resultado mostra a ficha de cada um.
+	for entry: Variant in rewards.get("loot", []):
+		if entry is Dictionary:
+			result.loot.append(entry)
 	GameState.persist_if_free()
 	DebugLog.info("Vitória na arena %d/%d." % [GameState.arena_number(), GameState.stage_total()])
 	fight_finished.emit(result)

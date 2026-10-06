@@ -118,7 +118,12 @@ func start_tournament(tier_id: String) -> bool:
 	tourney_round = 0
 	tourney_prize = 0
 	current_enemy = null
+	# Entrar no torneio cura a vida cheia: quem vinha machucado da arena lutava a
+	# primeira rodada em desvantagem enquanto as seguintes já curavam (heal_full em
+	# _on_tournament_victory). O torneio não tem descanso nem loja no meio.
+	player.heal_full()
 	campaign_started.emit(player)
+	player_changed.emit(player)
 	return true
 
 ## Encerra o torneio e volta ao modo Arena Livre (persiste ganhos no save).
@@ -223,9 +228,16 @@ func on_victory(gold_reward: int, xp_reward: int) -> Dictionary:
 	if current_enemy != null:
 		mult = float(current_enemy.reward_multiplier)
 	var streak_mult := EconomySystemScript.streak_reward_multiplier(win_streak)
-	var total_mult := mult * streak_mult
-	var gold_gain := int(round(float(maxi(0, gold_reward)) * total_mult))
-	var xp_gain := int(round(float(maxi(0, xp_reward)) * total_mult))
+	# Ouro: escala com o tier do inimigo E com a sequência de vitórias.
+	var gold_gain := int(round(float(maxi(0, gold_reward)) * mult * streak_mult))
+	# XP: escala SÓ com o tier (bônus pequeno). A sequência multiplicava o XP também,
+	# e com 5 vitórias seguidas no nível 1 a luta rendia mais XP que o nível exigia —
+	# o personagem subia de nível a cada luta.
+	var enemy_tier: int = 1
+	if current_enemy != null:
+		enemy_tier = int(current_enemy.enemy_tier)
+	var tier_xp_mult := EconomySystemScript.tier_experience_multiplier(enemy_tier)
+	var xp_gain := int(round(float(maxi(0, xp_reward)) * tier_xp_mult))
 	player.gold += gold_gain
 	var leveled_up: bool = player.grant_experience(xp_gain)
 	player_changed.emit(player)
@@ -239,24 +251,80 @@ func _on_tournament_victory(gold_reward: int, xp_reward: int) -> Dictionary:
 	var leveled_up: bool = player.grant_experience(xp_gain)
 	tourney_prize += gold_prize
 	var final_round := is_boss_stage()
+	var tier_index := _tier_index(tourney_tier_id)
+	# Cada rodada vencida entrega UM item (raridade com piso pelo tier). Antes o
+	# torneio dava só ouro e XP: vencer não deixava nada na mão do jogador.
+	var loot: Array[Dictionary] = []
+	var round_item := _grant_reward_item(int(player.level), tier_index)
+	if not round_item.is_empty():
+		loot.append(round_item)
 	var cleared := false
 	if final_round:
-		# Campeão: leva todo o prêmio + o item único do Grande Gladiador.
+		# Campeão: leva todo o prêmio + o item único do Grande Gladiador — agora ele
+		# entra na BOLSA (antes era equipado em silêncio, então o prêmio não aparecia).
 		player.gold += tourney_prize
-		_grant_unique_item("gladius_magnus")
+		var trophy := _grant_unique_item("gladius_magnus")
+		if not trophy.is_empty():
+			loot.append(trophy)
 		cleared = true
 	else:
 		tourney_round += 1
 	# Regra do torneio: vencer uma luta devolve a vida cheia para o próximo.
 	player.heal_full()
 	player_changed.emit(player)
-	return {"gold": 0, "prize": gold_prize, "experience": xp_gain, "leveled_up": leveled_up, "campaign_cleared": cleared, "tournament": true}
+	return {"gold": 0, "prize": gold_prize, "experience": xp_gain, "leveled_up": leveled_up, "campaign_cleared": cleared, "tournament": true, "loot": loot}
 
-func _grant_unique_item(item_id: String) -> void:
+## Prêmio de rodada: item procedural que vai para a bolsa (não equipa à força) e
+## volta para a tela de resultado exibir a ficha.
+func _grant_reward_item(player_level: int, tier_index: int) -> Dictionary:
+	if player == null:
+		return {}
+	var minimum_rarity := clampi(tier_index, 0, 2)
+	var item := ItemGeneratorScript.generate_reward_item(player_level, minimum_rarity)
+	if item.is_empty():
+		return {}
+	player.remember_item(item)
+	return item
+
+func _grant_unique_item(item_id: String) -> Dictionary:
 	var item := ContentRepositoryScript.find_item(ContentRepositoryScript.load_items(), item_id)
-	if not item.is_empty() and not player.owns_item(item_id):
-		player.equip_item(item)
-		player_changed.emit(player)
+	if item.is_empty() or player == null:
+		return {}
+	if not player.owns_item(item_id):
+		player.remember_item(item)
+	player_changed.emit(player)
+	return item
+
+# --- Venda de itens da bolsa -----------------------------------------------
+
+## Vende um item da bolsa (nunca o equipado) e credita 40% do preço de compra.
+## Devolve valor, nome e o motivo quando recusa — a interface mostra o motivo.
+func sell_item(item_id: String) -> Dictionary:
+	var info := {"ok": false, "gold": 0, "name": "", "reason": ""}
+	if player == null:
+		info["reason"] = "sem personagem"
+		return info
+	var item: Dictionary = player.catalog_item(item_id)
+	if item.is_empty():
+		info["reason"] = "item desconhecido"
+		return info
+	info["name"] = str(item.get("display_name", "Item"))
+	if player.is_equipped(item_id):
+		info["reason"] = "está equipado: desequipe antes de vender"
+		return info
+	if not EconomySystemScript.is_sellable(item):
+		info["reason"] = "item único de torneio: não pode ser vendido"
+		return info
+	var value := EconomySystemScript.sell_price(item)
+	if not player.remove_owned(item_id):
+		info["reason"] = "não foi possível remover da bolsa"
+		return info
+	player.gold += value
+	info["ok"] = true
+	info["gold"] = value
+	player_changed.emit(player)
+	save_progress()
+	return info
 
 ## Derrota: Arena Livre perde 25% do ouro e acorda curado (segue o jogo);
 ## Torneio encerra a inscrição e devolve apenas metade do prêmio acumulado.
@@ -363,6 +431,25 @@ func equip_item(item: Dictionary) -> void:
 	player.equip_item(item)
 	player_changed.emit(player)
 	save_progress()
+
+## Desequipa um slot: o item volta para a bolsa (usado pelo arrastar-e-soltar).
+func unequip_slot(slot: String) -> bool:
+	if player == null:
+		return false
+	if not player.unequip(slot):
+		return false
+	player_changed.emit(player)
+	save_progress()
+	return true
+
+## Coloca um item na bolsa (ganho de prêmio, por exemplo) sem equipar.
+func add_item_to_bag(item: Dictionary) -> bool:
+	if player == null or item.is_empty():
+		return false
+	player.remember_item(item)
+	player_changed.emit(player)
+	save_progress()
+	return true
 
 func purchase_item(item: Dictionary) -> bool:
 	if player == null or item.is_empty():

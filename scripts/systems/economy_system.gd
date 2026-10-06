@@ -5,12 +5,43 @@ extends RefCounted
 ## Sem interface ou estado global; números centralizados para playtest
 ## e comparação de balanceamento em docs/BALANCEAMENTO.md.
 
+## Recompensa base de uma luta na Arena Livre, por nível do jogador.
+## O XP cresce devagar de propósito: a curva é calibrada para exigir de ~3 lutas
+## por nível (nível 1) a ~5 (nível 15) — ver required_experience(). A sequência de
+## vitórias multiplica SÓ o ouro (ver GameState.on_victory): antes ela multiplicava
+## o XP também e o personagem subia de nível a cada luta.
 static func fight_rewards(player_level: int) -> Dictionary:
 	var level: int = maxi(1, player_level)
 	return {
 		"gold": 16 + level * 8,
-		"experience": 18 + level * 7,
+		"experience": 12 + level * 8,
 	}
+
+## XP necessário para sair do nível informado. Fonte única da verdade (o modelo
+## GladiatorData.required_experience delega para cá).
+static func required_experience(player_level: int) -> int:
+	return 60 + (maxi(1, player_level) - 1) * 40
+
+## Bônus de XP por enfrentar um inimigo mais forte (tier): pequeno de propósito,
+## para um inimigo elite não valer um nível inteiro sozinho.
+static func tier_experience_multiplier(enemy_tier: int) -> float:
+	return 1.0 + 0.15 * float(maxi(0, enemy_tier - 1))
+
+# --- Venda de itens --------------------------------------------------------
+
+## Fração do preço de compra devolvida na venda. Vender é sempre prejuízo, mas
+## devolve ouro para o próximo passo (a bolsa não é um depósito morto).
+const SELL_RATIO := 0.4
+
+## Preço de venda de um item (o item único de torneio não tem preço: não é vendável).
+static func sell_price(item: Dictionary) -> int:
+	if item.is_empty() or not is_sellable(item):
+		return 0
+	return maxi(1, int(round(float(int(item.get("price", 0))) * SELL_RATIO)))
+
+## Item único (prêmio de torneio) não pode ser vendido.
+static func is_sellable(item: Dictionary) -> bool:
+	return not bool(item.get("unique", false))
 
 ## Soma dos bônus de um item de conteúdo (usado para comparar melhorias).
 static func item_total_bonus(item: Dictionary) -> int:
@@ -60,7 +91,7 @@ static func level_up_options() -> Array[Dictionary]:
 
 ## Pontos de atributo disponíveis e dinheiro inicial para a loja.
 static func creation_points() -> int:
-	return 12
+	return 20
 
 static func starting_gold() -> int:
 	return 80

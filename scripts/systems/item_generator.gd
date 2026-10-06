@@ -63,6 +63,32 @@ static func generate_shop_stock(player_level: int, per_type: int = PER_TYPE) -> 
 			stock[subtype_id] = _generate_type_items(subtype, maxi(1, player_level), per_type)
 	return stock
 
+## Um único item sorteado (tipo, raridade e nível), usado como prêmio de torneio.
+## `min_rarity_index` garante um piso de raridade para o tier (0 = comum).
+static func generate_reward_item(player_level: int, min_rarity_index: int = 0) -> Dictionary:
+	var subtypes: Array[Dictionary] = []
+	for category: Dictionary in top_categories():
+		for subtype: Dictionary in category.get("subtypes", []):
+			subtypes.append(subtype)
+	if subtypes.is_empty():
+		return {}
+	var subtype: Dictionary = subtypes[randi_range(0, subtypes.size() - 1)]
+	var nouns: Array = subtype.get("nouns", [])
+	var rarity := roll_rarity()
+	var wanted := clampi(min_rarity_index, 0, RARITIES.size() - 1)
+	if rarity_index(rarity) < wanted:
+		rarity = RARITIES[wanted]
+	var noun := str(nouns[randi_range(0, maxi(0, nouns.size() - 1))])
+	return _make_item(subtype, noun, rarity, maxi(1, player_level + randi_range(0, 1)))
+
+## Posição da raridade na tabela (comum = 0). Comparação por id, nunca por igualdade
+## de dicionário.
+static func rarity_index(rarity: Dictionary) -> int:
+	for index in RARITIES.size():
+		if str(RARITIES[index].get("id", "")) == str(rarity.get("id", "")):
+			return index
+	return 0
+
 static func _generate_type_items(subtype: Dictionary, player_level: int, count: int) -> Array[Dictionary]:
 	# `canonical` guarda a ordem do data/*.json (do substantivo mais simples ao mais
 	# forte). `nouns` é a cópia embaralhada: decide QUAIS nomes aparecem no estoque.
