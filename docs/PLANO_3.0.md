@@ -205,7 +205,7 @@ Hoje já é procedural: **luta/inimigo** (escala por nível/tier), **item gerado
 | **6** ✅ | §3.1 bug do torneio/pontos + §3.2 GANHOU/PERDEU + resumo em modal | reproduzir o bug antes e depois na QA (o torneio **não** reinicia ao distribuir pontos); cartaz antes do resumo |
 | **7** ✅ | Gerador de arte + **cidades e arenas** geradas (§4.1/4.2) | `gen_assets.gd` roda headless e produz os PNGs; cidade com imagem de verdade na QA; 3 cenários por faixa |
 | **8** | Gladiador em camadas + **arma na mão** + armaduras no corpo + efeitos + projéteis | QA com print do gladiador equipado e do ataque com arma e projétil |
-| **9** | Itens: pool maior + **variações únicas** + tiers §5.3 | teste de tabela de drop por grau (seed fixa) + variações fora da loja |
+| **9** ✅ | Itens: pool maior + **variações únicas** + tiers §5.3 | teste de tabela de drop por grau (seed fixa) + variações fora da loja |
 | **10** | Boss final **aleatório** + **COMBATE FINAL** evidente + item só do boss (§5.1/5.3) | sorteio cobrindo o pool, nenhum item em rodada 1..n−1, marcação clara na tela |
 | **11** | **Permadeath** no torneio + Mural dos caídos (§6) | aviso e confirmação, personagem apagado na derrota, arena livre intacta |
 
@@ -301,6 +301,8 @@ que as folhas suas vão substituir.
 
 ---
 
+---
+
 ## 12. Resultado da etapa 8 — medido (06/10/2026)
 
 **A luta passou a ANIMAR por pose, o golpe tem efeito, a ação à distância tem projétil, e a sua folha de personagem
@@ -350,3 +352,55 @@ faísca), do arco de corte, de um PROJÉTIL voando (luta com arco) e do derrotad
 sua folha D1/D2 (`ARTE.md` §3-D) substitui por arte pintada quando quiser, pelo mesmo contrato. Andar/celebrar
 seguem fora (como no §4.2: menor retorno agora). A ia de movimento já gera poeira, mas uma animação de caminhada
 de verdade precisa de mais quadros de pose.
+
+---
+
+## 13. Resultado da etapa 9 — medido (06/10/2026)
+
+**Pool maior.** Silhuetas por classe de arma: espada 6 · adaga 5 · machado 5 · lança 5 · arco 5 · besta 4 ·
+arremesso 4. Por peça de armadura: peitoral 5 · capacete 5 · luvas 4 · botas 4 · cinto 4. A loja passou a
+mostrar até 5 por tipo. **11 afixos** aplicados pelo gerador, com limite por raridade (Comum 0 · Incomum 1 ·
+Raro 1–2 · Épico 2–3): os 7 atributos + armadura, e os exclusivos **Cortante** (`crit_bonus` +2–5 p.p.),
+**Teimoso** (`taunt_resist` +4–10) e **Cobiçoso** (`gold_bonus` +3–8%) — todos ligados à mecânica (crítico,
+Taunt, ouro e combate), com peso no preço para não existir item barato-e-forte.
+
+**As 8 variações únicas** (fora da loja, não vendáveis, só de boss, um conjunto por torneio):
+
+| Torneio | Item | Efeito exclusivo (onde morde) |
+| --- | --- | --- |
+| Menor t1 | **Adaga da Viúva** | REVIDA **sempre** que apara (`combat_resolver`) |
+| Menor t1 | **Manto do Público** | EXIBIR **+50%** e não deixa aberto (`arena` + `crowd_system`) |
+| Maior t2 | **Elmo do Imperador** | **imune a Taunt** (`combat_resolver.taunt_chance` → 0) |
+| Maior t2 | **Botas do Mensageiro** | +0,15 esquiva **ignorando o teto** (`dodge_chance`) |
+| Maior t2 | **Luvas do Carrasco** | **+15% crítico** (`critical_chance`) |
+| Grande t3 | **Gládio do Grande Gladiador** | **+20% dano corpo a corpo** |
+| Grande t3 | **Pingente do Sortudo** | **+25% ouro** por vitória (`player_gold_multiplier`) |
+| Grande t3 | **Coração de Bronze** | **Segundo Sopro**: sobrevive ao 1º golpe fatal |
+
+Cada efeito tem teste de comportamento real (ex.: 287/287 aparadas revidaram com a Adaga; Taunt com o Elmo
+medido em 0).
+
+**Tabela de drop por grau — medida com 20.000 amostras por grau (seed 424242) contra o plano:**
+
+| Grau | Comum | Incomum | Raro | Épico | Lendário |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 55 (55) | 25 (25) | 12 (12) | 6 (6) | 2 (2) |
+| 2 | 40 (40) | 28 (28) | 19 (18) | 10 (10) | 4 (4) |
+| 3 | 28 (28) | 30 (30) | 24 (24) | 13 (13) | 5 (5) |
+| 4 | 15 (15) | 28 (28) | 30 (30) | 19 (19) | 8 (8) |
+| 5 | 10 (10) | 22 (22) | 32 (32) | 26 (26) | 10 (10) |
+
+Pior desvio **0,59 p.p.** (limite ±3) e monotonicidade confirmada. O peso efetivo é o do plano **+ empurrão do
+tier** (`0/8/16`) **+ peso pequeno do rank** (≤4) **+ teto anti-farm de única** (t1 ≤4%, t2 ≤7%, t3 ≤10%) — o
+torneio Menor fica exatamente na régua do plano. Anti-farm: a mesma variação **não repete** enquanto você não
+tiver todas.
+
+**Verificação minha:** regras PASS (4 testes novos), arte PASS, fluxo PASS e balanceamento PASS (`BAL=0`); a
+asserção ajustada continua exigindo **exatamente 1 item, só na final** e ficou **mais forte** (agora valida a
+raridade e o conjunto do tier). QA com o jogo aberto: apresentação do boss com o grau, arena, vitória de
+torneio, prêmio de item e a bolsa com a variação única.
+
+**Defeito visual corrigido por mim:** o grau saía com **retângulos vazios** porque o código usava o emoji `⭐`,
+que **não existe na fonte padrão do Godot**. Medi os glifos por renderização (`qa/qa_glyphs.tscn`, porque
+`has_char()` mente): a fonte **tem** `★ ☆ ✦ ✧ ✪ ● ■ ◆ ▲ ✚ ✖ ⚔ ☠ ♥` e **não tem** `⭐`. Trocado por `★` — a
+apresentação agora mostra `★★★★★ (5/5)`.

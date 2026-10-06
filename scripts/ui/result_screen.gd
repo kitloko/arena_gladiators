@@ -103,7 +103,7 @@ func _render_summary() -> void:
 			lines.append("[color=#bbaec1]Prêmio acumulado no torneio: %d.[/color]" % GameState.tournament_prize())
 			lines.append("[color=#79cf7b]Você acorda curado para o próximo combate.[/color]")
 			if bool(_result.campaign_cleared):
-				lines.append("[color=#79cf7b]CAMPEÃO! O Gládio do Grande Gladiador é seu.[/color]")
+				lines.append("[color=#79cf7b]CAMPEÃO! O item do boss está na sua bolsa.[/color]")
 		else:
 			lines.append("[color=#79cf7b]+%d ouro[/color]  •  [color=#cdbfd5]+%d XP[/color]" % [int(_result.gold), int(_result.experience)])
 			lines.append("[color=#d9a45b]SEQUÊNCIA: %d vitória(s) seguidas — +%d%% na recompensa[/color]" % [GameState.win_streak, EconomySystemScript.streak_bonus_percent(GameState.win_streak)])

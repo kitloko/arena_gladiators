@@ -14,7 +14,8 @@
     "base_health": 46,
     "base_attack": 8,
     "base_defense": 3,
-    "base_luck": 4
+    "base_luck": 4,
+    "grade": 1
   },
   {
     "id": "livia",
@@ -31,7 +32,8 @@
     "base_health": 42,
     "base_attack": 10,
     "base_defense": 2,
-    "base_luck": 7
+    "base_luck": 7,
+    "grade": 2
   },
   {
     "id": "maurus",
@@ -48,7 +50,8 @@
     "base_health": 52,
     "base_attack": 7,
     "base_defense": 5,
-    "base_luck": 3
+    "base_luck": 3,
+    "grade": 3
   },
   {
     "id": "vettius",
@@ -65,7 +68,8 @@
     "base_health": 60,
     "base_attack": 11,
     "base_defense": 6,
-    "base_luck": 6
+    "base_luck": 6,
+    "grade": 3
   },
   {
     "id": "imperator",
@@ -83,6 +87,7 @@
     "base_attack": 13,
     "base_defense": 7,
     "base_luck": 8,
+    "grade": 4,
     "boss": true,
     "special": {
       "id": "fury",
@@ -108,6 +113,7 @@
     "base_attack": 15,
     "base_defense": 9,
     "base_luck": 10,
+    "grade": 5,
     "boss": true,
     "special": {
       "id": "coliseum",

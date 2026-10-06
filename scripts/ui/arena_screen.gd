@@ -62,6 +62,10 @@ var _enemy_moves := 0
 ## FERIMENTO (item 2): a luta ficou marcada por um crítico forte TOMADO pelo
 ## jogador — agrava a chance de sequela na derrota.
 var _took_critical := false
+## SEGUNDO SOPRO (Coração de Bronze, etapa 9): já usou o "não cai" nesta luta?
+var _second_wind_used := false
+## Chance do INIMIGO provocar em vez de atacar (o Elmo do Imperador imuniza, etapa 9).
+const ENEMY_TAUNT_CHANCE := 0.15
 
 var status_label: Label
 var distance_label: Label
@@ -149,6 +153,8 @@ func build_interface() -> void:
 	# COMBATE FINAL (etapa 6, correção 4): faixa inconfundível na rodada final.
 	if GameState.is_final_tournament_round():
 		root.add_child(_make_final_banner())
+	elif foe != null and bool(foe.boss):
+		root.add_child(make_label("BOSS — GRAU DE DIFICULDADE  %s  (%d/5)" % [BossDropTable.stars(GameState.current_boss_grade()), GameState.current_boss_grade()], 15, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
 	status_label = make_label("", 15, Color("cdbfd5"), HORIZONTAL_ALIGNMENT_CENTER)
 	root.add_child(status_label)
 	# Barra da felicidade do público (item H): 0 a 100%, SEMPRE visível no topo.
@@ -243,6 +249,7 @@ func start_new_fight() -> void:
 	_damage_taken = 0
 	_enemy_moves = 0
 	_took_critical = false
+	_second_wind_used = false
 	combat_results = []
 	last_action_result = {}
 	distance = CombatResolverScript.ARENA_START_RANGE
@@ -403,6 +410,12 @@ func _retreat_player() -> void:
 func enemy_turn(defense_bonus: int) -> void:
 	if not fight_active:
 		return
+	# TAUNT DO INIMIGO (etapa 9): corpo a corpo pode PROVOCAR em vez de atacar — te
+	# deixa exposto ao próximo golpe. O ELMO DO IMPERADOR dá IMUNIDADE total.
+	if foe.enemy_kind != "ranged" and randf() < ENEMY_TAUNT_CHANCE:
+		_enemy_taunt()
+		_finish_round()
+		return
 	if foe.enemy_kind == "ranged":
 		_enemy_moves += 1
 		if distance < CombatResolverScript.ENEMY_RANGED_RETREAT and enemy_pos < CombatResolverScript.ARENA_MAX_RANGE:
@@ -427,6 +440,21 @@ func enemy_turn(defense_bonus: int) -> void:
 		crowd.clear_exposed()
 	_finish_round()
 
+## Provocação do INIMIGO (etapa 9): troca o ataque por um Taunt que deixa o
+## jogador EXPOSTO ao próximo golpe. Resistida pela SORTE/DEF e ANULADA de vez
+## pelo Elmo do Imperador (imunidade). Consome o turno do inimigo.
+func _enemy_taunt() -> void:
+	_play_pose(false, "attack", 0.4)
+	if UniqueItems.taunt_immune(GameState.player):
+		log_lines.append("[color=#f5c451]%s provoca — o Elmo do Imperador te mantém IMUNE a Taunt![/color]" % foe.display_name)
+		return
+	var chance := CombatResolverScript.taunt_chance(foe, GameState.player)
+	if randf() > chance:
+		log_lines.append("[color=#bbaec1]%s provoca, mas você não se abala.[/color]" % foe.display_name)
+		return
+	GameState.player.vulnerable = true
+	log_lines.append("[color=#e06bb5]Taunt: %s te provoca — você fica ABERTO ao próximo golpe![/color]" % foe.display_name)
+
 ## Fecha o turno: incrementa a rodada, atualiza a tela e devolve as ações (ou derrota).
 func _finish_round() -> void:
 	# POÇÕES (item 6): os buffs temporários duram N TURNOS — ao fechar a rodada
@@ -442,7 +470,10 @@ func _finish_round() -> void:
 	_round_cold = true
 	round_number += 1
 	refresh()
-	if GameState.player.is_defeated():
+	if GameState.player.is_defeated() and _try_second_wind():
+		set_actions_enabled(true)
+		_apply_action_states()
+	elif GameState.player.is_defeated():
 		lose_fight()
 	elif foe != null and foe.is_defeated():
 		# O jogador aparou e revidou, derrubando o inimigo no turno dele.
@@ -527,7 +558,14 @@ func _player_sleep() -> void:
 func _player_exhibit() -> void:
 	_play_pose(true, "defend", 0.6)
 	log_lines.append("[color=#f5c451]%s se exibe para o público![/color]" % GameState.player.display_name)
-	_crowd_event("exhibit")
+	var entry := _crowd_event("exhibit")
+	# MANTO DO PÚBLICO (etapa 9): EXIBIR rende +50% e NÃO deixa você aberto.
+	if UniqueItems.exhibit_boost(GameState.player) and crowd != null:
+		var bonus := int(round(float(maxi(0, int(entry.get("delta", 0)))) * 0.5))
+		if bonus > 0:
+			_log_crowd(crowd.apply_bonus("exhibit_bonus", bonus))
+		crowd.clear_exposed()
+		log_lines.append("[color=#f5c451]O Manto do Público encanta a plateia (+50%) e mantém você fechado.[/color]")
 
 ## POÇÕES (item 6): bebe uma poção da mochila durante a luta. O efeito é aplicado
 ## pelo GameState (regra única) e o item é CONSUMIDO. Devolve false se a poção não
@@ -819,6 +857,19 @@ func win_fight() -> void:
 	DebugLog.info("Vitória na arena %d/%d." % [GameState.arena_number(), GameState.stage_total()])
 	_show_end_banner(result)
 
+## SEGUNDO SOPRO (Coração de Bronze, etapa 9): sobrevive ao PRIMEIRO golpe fatal
+## de cada luta — volta com 1 de vida, uma única vez. Devolve true se salvou.
+func _try_second_wind() -> bool:
+	if _second_wind_used or GameState.player == null:
+		return false
+	if not UniqueItems.second_wind(GameState.player):
+		return false
+	_second_wind_used = true
+	GameState.player.health = 1
+	log_lines.append("[color=#f5c451]O CORAÇÃO DE BRONZE pulsa! %s se recusa a cair — volta com 1 de vida![/color]" % GameState.player.display_name)
+	_spawn_status_text(true, "SEGUNDO SOPRO", Color("f5c451"))
+	return true
+
 func lose_fight() -> void:
 	fight_active = false
 	set_actions_enabled(false)
@@ -936,6 +987,7 @@ func _make_final_banner() -> PanelContainer:
 	box.add_theme_constant_override("separation", 1)
 	panel.add_child(box)
 	box.add_child(make_label("COMBATE FINAL — %s" % GameState.final_boss_name(), 20, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	box.add_child(make_label("GRAU DE DIFICULDADE  %s  (%d/5)  — define a tabela de drop" % [BossDropTable.stars(GameState.current_boss_grade()), GameState.current_boss_grade()], 14, Color("f5c451"), HORIZONTAL_ALIGNMENT_CENTER))
 	box.add_child(make_label("A última luta do torneio. Só aqui o troféu do campeão aparece.", 12, Color("e08a8a"), HORIZONTAL_ALIGNMENT_CENTER))
 	return panel
 

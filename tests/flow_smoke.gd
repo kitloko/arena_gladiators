@@ -153,7 +153,7 @@ func _run_test() -> void:
 		return
 	var fought = result._result
 	var expected_xp := int(round(float(int(base_rewards.experience)) * tier_multiplier))
-	var expected_gold := int(round(float(int(base_rewards.gold)) * enemy_multiplier * EconomySystemScript.streak_reward_multiplier(10)))
+	var expected_gold := int(round(float(int(base_rewards.gold)) * enemy_multiplier * EconomySystemScript.streak_reward_multiplier(10) * GameState.player_gold_multiplier()))
 	_check(int(fought.experience) == expected_xp, "XP da vitória não é inflado pela sequência de vitórias (medido %d, esperado %d)" % [int(fought.experience), expected_xp])
 	_check(int(fought.gold) == expected_gold and int(fought.gold) > int(base_rewards.gold), "a sequência de vitórias aumenta o ouro da vitória (medido %d)" % int(fought.gold))
 	_check(GameState.player.gold == gold_before_kill + int(fought.gold), "o ouro do resumo bate com o ouro do personagem")
@@ -193,11 +193,13 @@ func _run_test() -> void:
 	_check(GameState.player.health == GameState.player.max_health, "vencer rodada cura para a próxima")
 	GameState.tourney_round = GameState.tournament_round_total() - 1
 	var rfinal: Dictionary = GameState.on_victory(50, 40)
-	_check(bool(rfinal.campaign_cleared) and GameState.player.owns_item("gladius_magnus"), "vencer o Grande Gladiador entrega o item único")
+	_check(bool(rfinal.campaign_cleared), "vencer o Grande Gladiador conclui o torneio e entrega o item do boss")
 	_check(GameState.player.gold > gold_before, "prêmio entra no ouro")
 	var loot_final: Array = rfinal.get("loot", [])
-	_check(loot_final.size() == 1, "a rodada final dá SÓ o item único do boss (não existe mais item por rodada)")
-	_check(GameState.player.equipped_id("weapon") != "gladius_magnus", "item único entra na bolsa em vez de ser equipado à força")
+	_check(loot_final.size() == 1, "a rodada final dá SÓ o item do boss (não existe mais item por rodada)")
+	var loot_id := str((loot_final[0] as Dictionary).get("id", ""))
+	_check(loot_id != "" and GameState.player.owns_item(loot_id), "o item do boss final entra na bolsa")
+	_check(GameState.player.equipped_id("weapon") != loot_id, "item do boss entra na bolsa em vez de ser equipado à força")
 	_check(GameState.player.bag_items().size() >= 1, "o prêmio de item fica na bolsa")
 	# 8) Bolsa: vender, desequipar e reequipar
 	# O único item do torneio (o troféu) é NÃO VENDÁVEL: coloca-se um item comum na
@@ -215,8 +217,10 @@ func _run_test() -> void:
 	var sale: Dictionary = GameState.sell_item(first_id)
 	_check(bool(sale.ok) and GameState.player.gold == gold_pre_sale + EconomySystemScript.sell_price(first_item), "vender credita 40 por cento do preco")
 	_check(not GameState.player.owns_item(first_id), "item vendido sai da bolsa")
-	var trophy_sale: Dictionary = GameState.sell_item("gladius_magnus")
-	_check(not bool(trophy_sale.ok) and str(trophy_sale.reason) != "", "item único de torneio não pode ser vendido")
+	# Uma VARIAÇÃO ÚNICA de torneio (etapa 9) JAMAIS pode ser vendida.
+	GameState.add_item_to_bag(ContentRepositoryScript.find_item(ContentRepositoryScript.load_items(), "elmo_do_imperador"))
+	var trophy_sale: Dictionary = GameState.sell_item("elmo_do_imperador")
+	_check(not bool(trophy_sale.ok) and str(trophy_sale.reason) != "", "variação única de torneio não pode ser vendida")
 	# O item equipado não pode ser vendido: vender exigiria tirar do corpo, e o
 	# jogador perderia o bônus sem aviso. A tentativa tem de ser recusada.
 	var weapon_id: String = GameState.player.equipped_id("weapon")

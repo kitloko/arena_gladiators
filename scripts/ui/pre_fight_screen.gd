@@ -168,6 +168,8 @@ func build_interface() -> void:
 	# forma inconfundível, com o nome do boss em destaque.
 	if GameState.is_final_tournament_round():
 		root.add_child(_make_final_banner())
+	elif foe != null and bool(foe.boss):
+		root.add_child(make_label("BOSS — GRAU DE DIFICULDADE  %s  (%d/5)" % [BossDropTable.stars(GameState.current_boss_grade()), GameState.current_boss_grade()], 15, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
 	# Frente a frente: card de cada lutador com um VS no meio.
 	var versus := HBoxContainer.new()
 	versus.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -314,6 +316,7 @@ func _make_final_banner() -> PanelContainer:
 	box.add_theme_constant_override("separation", 2)
 	panel.add_child(box)
 	box.add_child(make_label("COMBATE FINAL — %s" % GameState.final_boss_name(), 22, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	box.add_child(make_label("GRAU DE DIFICULDADE  %s  (%d/5)  — define a tabela de drop" % [BossDropTable.stars(GameState.current_boss_grade()), GameState.current_boss_grade()], 15, Color("f5c451"), HORIZONTAL_ALIGNMENT_CENTER))
 	box.add_child(make_label("A última luta do torneio. Só aqui o troféu do campeão aparece.", 12, Color("e08a8a"), HORIZONTAL_ALIGNMENT_CENTER))
 	return panel
 

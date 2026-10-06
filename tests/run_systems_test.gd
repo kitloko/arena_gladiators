@@ -101,6 +101,14 @@ func _initialize() -> void:
 	_test_character_manifest_schema()
 	_test_pose_resolution_fallback_without_manifest()
 	_test_character_manifest_precedence()
+	# --- ETAPA 9: pool de itens/afixos + variações únicas + tabela de drop ---
+	_test_item_pool_expanded_with_affixes()
+	_test_drop_table_matches_plan()
+	_test_drop_table_tier_rank_and_cap()
+	_test_unique_variations_sets_and_off_shop()
+	_test_unique_no_duplicate_until_all_owned()
+	_test_unique_effects_are_real()
+	_test_boss_grades_and_drop_grants()
 	if _failures == 0:
 		print("PASS: todos os testes de regras passaram.")
 		quit(0)
@@ -1614,7 +1622,12 @@ func _test_tournament_item_only_from_final() -> void:
 	var rfinal: Dictionary = gs.on_victory(50, 40)
 	_check(bool(rfinal.get("campaign_cleared", false)), "a rodada final conclui o torneio")
 	var loot_final: Array = rfinal.get("loot", [])
-	_check(loot_final.size() == 1 and player.owns_item("gladius_magnus"), "o item (Gládio do Grande Gladiador) cai SÓ da rodada final (regra 3)")
+	_check(loot_final.size() == 1, "o ITEM DO BOSS cai SÓ da rodada final (regra 3)")
+	var drop: Dictionary = loot_final[0]
+	var drop_rarity := str(drop.get("rarity", ""))
+	_check(drop_rarity != "", "o item do boss traz a raridade sorteada pela tabela (%s)" % drop_rarity)
+	var drop_tier := UniqueItems.tier_of(str(drop.get("id", "")))
+	_check(drop_tier == "" or drop_tier == "t2", "se for variação única, o drop pertence ao conjunto do torneio Maior (%s)" % drop_tier)
 	_check(player.bag_items().size() == bag_before + 1, "exatamente 1 item de torneio na bolsa (%d)" % player.bag_items().size())
 	gs.free()
 
@@ -1712,6 +1725,288 @@ func _solid_texture(color: Color) -> ImageTexture:
 	var img := Image.create(2, 2, false, Image.FORMAT_RGBA8)
 	img.fill(color)
 	return ImageTexture.create_from_image(img)
+
+# ===========================================================================
+# ETAPA 9 — pool de itens/afixos + variações únicas + tabela de drop por grau
+# ===========================================================================
+
+## §5.2: 4 a 6 silhuetas por classe de arma e 3 a 5 por peça de armadura, e os
+## AFIXOS aplicados pelo gerador respeitam o limite por raridade.
+func _test_item_pool_expanded_with_affixes() -> void:
+	var weapon_min := 99
+	var weapon_max := 0
+	var armor_min := 99
+	var armor_max := 0
+	for category: Dictionary in ItemGeneratorScript.top_categories():
+		for subtype: Dictionary in category.get("subtypes", []):
+			var count: int = (subtype.get("nouns", []) as Array).size()
+			if str(subtype.get("slot", "")) == "weapon":
+				weapon_min = mini(weapon_min, count)
+				weapon_max = maxi(weapon_max, count)
+			else:
+				armor_min = mini(armor_min, count)
+				armor_max = maxi(armor_max, count)
+	_check(weapon_min >= 4 and weapon_max <= 6, "4 a 6 silhuetas por classe de arma (encontrado %d..%d)" % [weapon_min, weapon_max])
+	_check(armor_min >= 3 and armor_max <= 5, "3 a 5 silhuetas por peça de armadura (encontrado %d..%d)" % [armor_min, armor_max])
+	# Limite de afixos por raridade: Comum 0, Incomum 1, Raro 1 a 2, Épico 2 a 3.
+	var expected := {"comum": [0, 0], "incomum": [1, 1], "raro": [1, 2], "epico": [2, 3]}
+	var bad := ""
+	seed(20260909)
+	for rarity_id: String in expected.keys():
+		for i in 250:
+			var item: Dictionary = ItemGeneratorScript.generate_item_for_rarity(5, rarity_id)
+			if item.is_empty():
+				continue
+			var affix_count: int = (item.get("affixes", []) as Array).size()
+			var pair: Array = expected[rarity_id]
+			if affix_count < int(pair[0]) or affix_count > int(pair[1]):
+				bad += " %s=%d" % [rarity_id, affix_count]
+	_check(bad == "", "afixos respeitam o limite por raridade (Comum 0, Incomum 1, Raro 1-2, Épico 2-3)%s" % bad)
+	# Os três afixos exclusivos aparecem: crítico, taunt e ouro (além dos atributos).
+	var seen := {}
+	for i in 900:
+		var item: Dictionary = ItemGeneratorScript.generate_item_for_rarity(6, "epico")
+		for affix: Dictionary in item.get("affixes", []):
+			seen[str(affix.get("stat", ""))] = true
+	_check(seen.has("crit_bonus") and seen.has("taunt_resist") and seen.has("gold_bonus") and seen.has("strength_bonus"), "os afixos cobrem atributo, crítico, resistência a taunt e ouro extra")
+	# O item carrega os campos de afixo (a ficha e o combate leem daqui).
+	var probe: Dictionary = ItemGeneratorScript.generate_item_for_rarity(9, "epico")
+	_check(probe.has("crit_bonus") and probe.has("taunt_resist") and probe.has("gold_bonus") and probe.has("affixes"), "o item gerado traz crit_bonus/taunt_resist/gold_bonus/affixes")
+
+## A TABELA DE DROP POR GRAU medida com seed fixa bate com o plano (±3 p.p.) e é
+## monotônica (grau maior = mais raro/épico/lendário, menos comum).
+func _test_drop_table_matches_plan() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 424242
+	var samples := 20000
+	var reference := {
+		1: {"comum": 55, "incomum": 25, "raro": 12, "epico": 6, "lendario": 2},
+		2: {"comum": 40, "incomum": 28, "raro": 18, "epico": 10, "lendario": 4},
+		3: {"comum": 28, "incomum": 30, "raro": 24, "epico": 13, "lendario": 5},
+		4: {"comum": 15, "incomum": 28, "raro": 30, "epico": 19, "lendario": 8},
+		5: {"comum": 10, "incomum": 22, "raro": 32, "epico": 26, "lendario": 10},
+	}
+	var report: Array[String] = []
+	var worst := 0.0
+	var offenders := ""
+	for grade in range(1, 6):
+		var counts := {}
+		for rarity_id: String in BossDropTable.RARITY_ORDER:
+			counts[rarity_id] = 0
+		for i in samples:
+			var rolled: String = BossDropTable.sample_base_rarity(grade, rng)
+			counts[rolled] = int(counts[rolled]) + 1
+		var expected: Dictionary = reference[grade]
+		for rarity_id: String in BossDropTable.RARITY_ORDER:
+			var measured := 100.0 * float(counts[rarity_id]) / float(samples)
+			var target := float(expected[rarity_id])
+			var diff := absf(measured - target)
+			worst = maxf(worst, diff)
+			if diff > 3.0:
+				offenders += " g%d %s %.1f≠%.0f" % [grade, rarity_id, measured, target]
+		report.append("g%d C%.0f I%.0f R%.0f E%.0f L%.0f" % [
+			grade,
+			100.0 * float(counts["comum"]) / samples,
+			100.0 * float(counts["incomum"]) / samples,
+			100.0 * float(counts["raro"]) / samples,
+			100.0 * float(counts["epico"]) / samples,
+			100.0 * float(counts["lendario"]) / samples,
+		])
+	print("    drop por grau (medido): %s | pior desvio %.2f p.p." % [" | ".join(report), worst])
+	_check(offenders == "", "as proporções medidas por grau batem com a tabela do plano (±3 p.p.)%s" % offenders)
+	var prev_high := -1
+	var prev_common := 999
+	var non_monotonic := ""
+	for grade in range(1, 6):
+		var high: int = BossDropTable.high_rarity_share(grade)
+		var common: int = int(BossDropTable.probability_for(grade, "comum"))
+		if high <= prev_high or common >= prev_common:
+			non_monotonic += " g%d" % grade
+		prev_high = high
+		prev_common = common
+	_check(non_monotonic == "", "grau maior = mais raro/épico/lendário e menos comum%s" % non_monotonic)
+
+## Tier empurra para cima, rank pesa pouco e a variação única tem TETO por torneio.
+func _test_drop_table_tier_rank_and_cap() -> void:
+	var non_100 := ""
+	for grade in range(1, 6):
+		var w: Dictionary = BossDropTable.weights_for_grade(grade)
+		var total := 0
+		for rarity_id: String in BossDropTable.RARITY_ORDER:
+			total += int(w[rarity_id])
+		if total != 100:
+			non_100 += " g%d=%d" % [grade, total]
+	_check(non_100 == "", "cada linha do plano soma 100%% (medido%s)" % non_100)
+	var not_up := ""
+	for grade in range(1, 6):
+		var base_comum := int(BossDropTable.effective_weights(grade, 0)["comum"])
+		var tier_comum := int(BossDropTable.effective_weights(grade, 2)["comum"])
+		if tier_comum >= base_comum:
+			not_up += " g%d" % grade
+	_check(not_up == "", "o tier do torneio empurra a tabela para cima (Comum cai)%s" % not_up)
+	_check(BossDropTable.RANK_PUSH_MAX < BossDropTable.TIER_PUSH[1], "o peso do rank é PEQUENO (menor que o empurrão de um tier)")
+	var cap_ok := true
+	for grade in range(1, 6):
+		for tier_index in 3:
+			var w: Dictionary = BossDropTable.effective_weights(grade, tier_index)
+			if int(w["lendario"]) > BossDropTable.unique_cap(tier_index):
+				cap_ok = false
+	_check(cap_ok, "a chance de variação única é LIMITADA por torneio (t1 ≤%d%%, t2 ≤%d%%, t3 ≤%d%%)" % [BossDropTable.unique_cap(0), BossDropTable.unique_cap(1), BossDropTable.unique_cap(2)])
+	_check(BossDropTable.unique_cap(0) < int(BossDropTable.weights_for_grade(5)["lendario"]), "o teto do torneio pequeno limita de fato o Lendário do grau alto")
+
+## As 8 variações únicas: um conjunto por torneio, nome próprio + efeito exclusivo,
+## FORA da loja e NÃO vendáveis.
+func _test_unique_variations_sets_and_off_shop() -> void:
+	var ids: Array = UniqueItems.all_ids()
+	_check(ids.size() == 8, "são 8 variações únicas no total (%d)" % ids.size())
+	var seen := {}
+	var broken := ""
+	for tier_id: String in ["t1", "t2", "t3"]:
+		var set: Array = UniqueItems.tier_set(tier_id)
+		_check(set.size() >= 2, "o torneio %s tem o SEU conjunto de variações únicas (%d)" % [tier_id.to_upper(), set.size()])
+		for item_id: String in set:
+			if seen.has(item_id):
+				broken += " dup:%s" % item_id
+			seen[item_id] = true
+			var item: Dictionary = UniqueItems.find(item_id)
+			var effect := str(item.get("unique_effect", ""))
+			if str(item.get("display_name", "")) == "" or effect == "" or not UniqueItems.EFFECTS.has(effect):
+				broken += " bad:%s" % item_id
+	_check(broken == "" and seen.size() == 8, "cada única tem nome próprio e efeito exclusivo LIGADO à mecânica%s" % broken)
+	# NÃO aparecem na loja: nenhum id único entra no estoque procedural.
+	var stock_ids := {}
+	for attempt in 8:
+		var stock: Dictionary = ItemGeneratorScript.generate_shop_stock(6)
+		for subtype_id: Variant in stock.keys():
+			for item: Dictionary in (stock[subtype_id] as Array):
+				stock_ids[str(item.get("id", ""))] = true
+	var leaked := ""
+	for item_id: String in ids:
+		if stock_ids.has(item_id):
+			leaked += " %s" % item_id
+	_check(leaked == "", "nenhuma variação única aparece no estoque da loja%s" % leaked)
+	# NÃO são vendáveis (preço de venda 0).
+	var sellable := ""
+	for item_id: String in ids:
+		var item: Dictionary = UniqueItems.find(item_id)
+		if EconomySystemScript.is_sellable(item) or EconomySystemScript.sell_price(item) != 0:
+			sellable += " %s" % item_id
+	_check(sellable == "", "nenhuma variação única é vendável (preço de venda 0)%s" % sellable)
+
+## Anti-farm: a mesma variação única não repete enquanto o jogador não tiver todas.
+func _test_unique_no_duplicate_until_all_owned() -> void:
+	var owned: Array = []
+	var picked: Array = []
+	for i in 12:
+		var pick: String = UniqueItems.pick_unique("t2", owned)
+		if pick == "":
+			break
+		picked.append(pick)
+		owned.append(pick)
+	_check(picked.size() == UniqueItems.tier_set("t2").size(), "as únicas do torneio não repetem até o jogador ter TODAS (%d)" % picked.size())
+	_check(UniqueItems.pick_unique("t2", owned) == "", "com o conjunto completo, não cai duplicata (devolve vazio)")
+
+## Cada efeito exclusivo MUDA uma regra de verdade (combate/arena/economia).
+func _test_unique_effects_are_real() -> void:
+	# Adaga da Viúva: TODA aparada revida (contra-ataque garantido).
+	var attacker = _fighter({"id": "a", "base_strength": 18, "base_attack": 0, "base_agility": 0})
+	var blocked := 0
+	var countered := 0
+	for i in 600:
+		var defender = _fighter({"id": "d", "base_defence": 200, "base_agility": 0, "base_vitality": 60})
+		defender.equip_item(UniqueItems.find("adaga_da_viuva"))
+		var res: Dictionary = CombatResolverScript.resolve_attack(attacker, defender, 1.0, 1.0, 0)
+		if bool(res.get("blocked", false)):
+			blocked += 1
+			if bool(res.get("countered", false)):
+				countered += 1
+	_check(blocked > 20, "o cenário de teste apara com frequência (%d aparos)" % blocked)
+	_check(blocked > 0 and countered == blocked, "com a Adaga da Viúva, TODA aparada revida: %d/%d" % [countered, blocked])
+	# Elmo do Imperador: imune a Taunt.
+	var elmo = _fighter({"id": "elmo", "base_charisma": 2, "base_luck": 2, "base_defence": 2})
+	elmo.equip_item(UniqueItems.find("elmo_do_imperador"))
+	var bully = _fighter({"id": "bully", "base_charisma": 40, "base_strength": 40, "base_luck": 20})
+	_check(CombatResolverScript.taunt_chance(bully, elmo) == 0.0, "Elmo do Imperador: o Taunt NUNCA pega (imunidade)")
+	var bare = _fighter({"id": "bare", "base_charisma": 2, "base_luck": 2, "base_defence": 2})
+	_check(CombatResolverScript.taunt_chance(bully, bare) > 0.0, "sem o Elmo, o Taunt tem chance normal")
+	# Botas do Mensageiro: +0,15 e IGNORA o teto de esquiva.
+	var botas = _fighter({"id": "botas", "base_agility": 42})
+	botas.equip_item(UniqueItems.find("botas_do_mensageiro"))
+	_check(CombatResolverScript.dodge_chance(botas) >= 0.42 + UniqueItems.WIND_DODGE_BONUS - 0.001, "Botas do Mensageiro somam +0,15 de esquiva")
+	var sem_botas = _fighter({"id": "sem", "base_agility": 60})
+	_check(is_equal_approx(CombatResolverScript.dodge_chance(sem_botas), CombatResolverScript.DODGE_CAP), "sem as botas a esquiva respeita o teto")
+	_check(CombatResolverScript.dodge_chance(botas) > CombatResolverScript.DODGE_CAP, "as botas fazem a esquiva passar do teto")
+	# Luvas do Carrasco: +15% de crítico.
+	var com_luvas = _fighter({"id": "luvas", "base_luck": 5})
+	com_luvas.equip_item(UniqueItems.find("luvas_do_carrasco"))
+	var sem_luvas = _fighter({"id": "nl", "base_luck": 5})
+	_check(is_equal_approx(CombatResolverScript.critical_chance(com_luvas) - CombatResolverScript.critical_chance(sem_luvas), UniqueItems.CRIT_MASTER_BONUS), "Luvas do Carrasco somam +15% de crítico")
+	# Gládio do Grande Gladiador: +20% de dano corpo a corpo (medido).
+	var sem_gladio = _fighter({"id": "sg", "base_strength": 30, "base_attack": 0, "base_agility": 0})
+	var com_gladio = _fighter({"id": "cg", "base_strength": 30, "base_attack": 0, "base_agility": 0})
+	com_gladio.equip_item(UniqueItems.find("gladius_magnus"))
+	var sum_sem := 0.0
+	var sum_com := 0.0
+	for i in 500:
+		var t1 = _fighter({"id": "t", "base_defence": 0, "base_agility": 0, "base_vitality": 200})
+		sum_sem += float(CombatResolverScript.resolve_attack(sem_gladio, t1, 1.0, 1.0, 0, "golpe", "melee").get("damage", 0))
+		var t2 = _fighter({"id": "t", "base_defence": 0, "base_agility": 0, "base_vitality": 200})
+		sum_com += float(CombatResolverScript.resolve_attack(com_gladio, t2, 1.0, 1.0, 0, "golpe", "melee").get("damage", 0))
+	_check(sum_com > sum_sem * 1.10, "o Gládio aumenta o dano melee medido (+20%%): %.0f vs %.0f" % [sum_com, sum_sem])
+	# Pingente do Sortudo: ×1,25 de ouro.
+	var pingente = _fighter({"id": "ping"})
+	pingente.equip_item(UniqueItems.find("pingente_do_sortudo"))
+	_check(is_equal_approx(UniqueItems.gold_multiplier(pingente), 1.25), "o Pingente do Sortudo multiplica o ouro por 1,25")
+	# Coração de Bronze: Segundo Sopro.
+	var coracao = _fighter({"id": "cor"})
+	coracao.equip_item(UniqueItems.find("coracao_de_bronze"))
+	_check(UniqueItems.second_wind(coracao), "o Coração de Bronze concede o Segundo Sopro")
+	# Manto do Público: EXIBIR turbinado e sem ficar aberto.
+	var manto = _fighter({"id": "manto"})
+	manto.equip_item(UniqueItems.find("manto_do_publico"))
+	_check(UniqueItems.exhibit_boost(manto), "o Manto do Público turbina o EXIBIR")
+	# Sem itens, nenhum efeito está ativo.
+	var limpo = _fighter({"id": "limpo"})
+	_check(not UniqueItems.always_counter(limpo) and not UniqueItems.taunt_immune(limpo) and not UniqueItems.second_wind(limpo), "sem a variação equipada, nenhum efeito único fica ativo")
+
+## Os bosses têm grau (1 a 5) que chega ao inimigo gerado, e o drop entrega
+## EXATAMENTE 1 item por vitória, sem duplicar as variações únicas do torneio.
+func _test_boss_grades_and_drop_grants() -> void:
+	var enemies: Array[Dictionary] = ContentRepositoryScript.load_enemies()
+	var bad := ""
+	var bosses := 0
+	for enemy: Dictionary in enemies:
+		var grade := int(enemy.get("grade", 0))
+		if grade < 1 or grade > 5:
+			bad += " %s=%d" % [str(enemy.get("id", "")), grade]
+		if bool(enemy.get("boss", false)):
+			bosses += 1
+	_check(bad == "", "todo inimigo declara o grau 1 a 5 (§5.3)%s" % bad)
+	_check(bosses >= 2, "há bosses com grau definido (%d)" % bosses)
+	var template: Dictionary = ContentRepositoryScript.find_enemy(enemies, "grande_gladiador")
+	var foe = CombatResolverScript.enemy_for_level(5, template)
+	_check(int(foe.grade) == 5, "o grau do boss (5) chega ao inimigo gerado")
+	_check(BossDropTable.stars(5) == "⭐⭐⭐⭐⭐" and BossDropTable.stars(1).begins_with("⭐") and BossDropTable.stars(1).ends_with("☆"), "o grau vira 1 a 5 estrelas para exibir")
+	# O prêmio do boss: exatamente 1 item por vitória e nada de única repetida.
+	var player = _fighter({"id": "drop", "level": 6, "rank_points": 900, "base_vitality": 10, "base_strength": 12})
+	var gs = _tournament_game_state(player)
+	seed(31337)
+	var granted := 0
+	var uniques := {}
+	var empties := 0
+	for i in 60:
+		var item: Dictionary = gs._grant_reward_item(5, "t2")
+		if item.is_empty():
+			empties += 1
+			continue
+		granted += 1
+		var id := str(item.get("id", ""))
+		if UniqueItems.tier_of(id) != "":
+			uniques[id] = true
+	_check(empties == 0 and granted == 60, "cada vitória do boss entrega EXATAMENTE 1 item (vazios %d)" % empties)
+	_check(uniques.size() <= UniqueItems.tier_set("t2").size(), "nunca saem mais variações únicas que o conjunto do torneio (%d de %d)" % [uniques.size(), UniqueItems.tier_set("t2").size()])
+	gs.free()
+
 
 
 

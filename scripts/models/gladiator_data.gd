@@ -66,6 +66,14 @@ var max_armour: int = 0
 var health: int = 46
 var armour: int = 0
 
+## AFIXOS agregados dos itens equipados (etapa 9): chance de crítico extra (em
+## pontos percentuais), resistência a Taunt (p.p.) e ouro extra por vitória (%).
+var crit_bonus: int = 0
+var taunt_resist: int = 0
+var gold_bonus: int = 0
+## Efeitos EXCLUSIVOS das variações únicas equipadas (ids de UniqueItems.EFFECTS).
+var unique_effects: Array = []
+
 ## equipado: slot -> id do item; _bonus: slot -> {str,att,def,agi,vit,cha,luck,armour}.
 var equipped: Dictionary = {}
 var owned_item_ids: Array = []
@@ -92,6 +100,8 @@ var trait_id: String = ""
 ## Chefe (data/enemies.json "boss": true): usado pela felicidade do público, que
 ## começa empolgada (piso 60) contra chefes.
 var boss: bool = false
+## GRAU DE DIFICULDADE do boss (1 a 5 ⭐, etapa 9 / §5.3): define a TABELA DE DROP.
+var grade: int = 1
 
 ## FERIMENTOS PERSISTENTES (item 2): sobrevivem à luta e só o MÉDICO (ou uma poção
 ## de ferimento) cura. Cada um é {id, label, attr, short, penalty} e reduz de
@@ -165,6 +175,7 @@ func _init(values: Dictionary = {}) -> void:
 	# TRAÇO de combate (item 8): só inimigos com template o declaram; padrão "".
 	trait_id = str(values.get("trait", ""))
 	boss = bool(values.get("boss", false))
+	grade = clampi(int(values.get("grade", 1)), 1, 5)
 	injuries = _load_injuries(values.get("injuries", []))
 	haggle_marks = _load_marks(values.get("haggle_marks", {}))
 	trained_xp = maxi(0, int(values.get("trained_xp", 0)))
@@ -211,6 +222,10 @@ func recompute_derived() -> void:
 	charisma = base_charisma
 	luck = base_luck
 	var armour_sum := 0
+	var crit_sum := 0
+	var taunt_sum := 0
+	var gold_sum := 0
+	var effects: Array = []
 	for slot: Variant in _bonus.keys():
 		var bonus: Dictionary = _bonus[slot]
 		strength += int(bonus.get("str", 0))
@@ -221,6 +236,12 @@ func recompute_derived() -> void:
 		charisma += int(bonus.get("cha", 0))
 		luck += int(bonus.get("luck", 0))
 		armour_sum += int(bonus.get("armour", 0))
+		crit_sum += int(bonus.get("crit", 0))
+		taunt_sum += int(bonus.get("taunt", 0))
+		gold_sum += int(bonus.get("gold", 0))
+		var effect_id := str(bonus.get("effect", ""))
+		if effect_id != "" and not effects.has(effect_id):
+			effects.append(effect_id)
 	# Buffs TEMPORÁRIOS de combate (poção, item 6): somam ao derivado enquanto duram.
 	for buff: Variant in buffs:
 		if not buff is Dictionary:
@@ -266,6 +287,10 @@ func recompute_derived() -> void:
 				charisma = maxi(1, charisma - penalty)
 			"luck":
 				luck = maxi(1, luck - penalty)
+	crit_bonus = crit_sum
+	taunt_resist = taunt_sum
+	gold_bonus = gold_sum
+	unique_effects = effects
 	max_health = HEALTH_BASE + vitality * HEALTH_PER_VIT
 	max_armour = armour_sum
 	health = mini(health, max_health)
@@ -276,6 +301,10 @@ func equipped_id(slot: String) -> String:
 
 func equipped_bonus(slot: String) -> Dictionary:
 	return _bonus.get(slot, {})
+
+## Está com um efeito exclusivo de variação única ativo? (etapa 9)
+func has_unique_effect(effect_id: String) -> bool:
+	return unique_effects.has(effect_id)
 
 func equip_item(item: Dictionary) -> void:
 	var slot := str(item.get("slot", "weapon"))
@@ -295,6 +324,10 @@ func equip_item(item: Dictionary) -> void:
 		"cha": int(item.get("charisma_bonus", 0)),
 		"luck": int(item.get("luck_bonus", 0)),
 		"armour": int(item.get("armour", 0)),
+		"crit": int(item.get("crit_bonus", 0)),
+		"taunt": int(item.get("taunt_resist", 0)),
+		"gold": int(item.get("gold_bonus", 0)),
+		"effect": str(item.get("unique_effect", "")),
 	}
 	_register_owned(item_id)
 	recompute_derived()
@@ -570,7 +603,7 @@ func _to_string_dict(source) -> Dictionary:
 	return result
 
 func _empty_bonus() -> Dictionary:
-	return {"str": 0, "att": 0, "def": 0, "agi": 0, "vit": 0, "cha": 0, "luck": 0, "armour": 0}
+	return {"str": 0, "att": 0, "def": 0, "agi": 0, "vit": 0, "cha": 0, "luck": 0, "armour": 0, "crit": 0, "taunt": 0, "gold": 0, "effect": ""}
 
 ## Normaliza um bônus de item, aceitando o vocabulário novo e o antigo
 ## (atk/def/luck/hp) para não quebrar saves existentes.
@@ -588,6 +621,10 @@ func _normalize_bonus(entry: Dictionary) -> Dictionary:
 		"cha": int(entry.get("cha", int(entry.get("charisma_bonus", 0)))),
 		"luck": int(entry.get("luck", int(entry.get("luck_bonus", 0)))),
 		"armour": int(entry.get("armour", 0)),
+		"crit": int(entry.get("crit", int(entry.get("crit_bonus", 0)))),
+		"taunt": int(entry.get("taunt", int(entry.get("taunt_resist", 0)))),
+		"gold": int(entry.get("gold", int(entry.get("gold_bonus", 0)))),
+		"effect": str(entry.get("effect", entry.get("unique_effect", ""))),
 	}
 
 func _legacy_bonus(atk: int, def: int, luck: int, hp: int) -> Dictionary:

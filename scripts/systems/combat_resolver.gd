@@ -3,6 +3,7 @@ extends RefCounted
 
 const GladiatorDataScript := preload("res://scripts/models/gladiator_data.gd")
 const TraitSystemScript := preload("res://scripts/systems/trait_system.gd")
+const UniqueItemsScript := preload("res://scripts/systems/unique_items.gd")
 
 ## DEFESA FIRME: reduz o dano recebido no turno seguinte. Cada ponto vale 5% de
 ## redução (o valor 6 = 30% de redução), com teto de 60%.
@@ -263,7 +264,12 @@ static func dodge_chance(defender) -> float:
 	if defender == null:
 		return 0.0
 	var chance := float(defender.agility) * DODGE_PER_AGI + TraitSystemScript.dodge_modifier(defender)
-	return clampf(chance, 0.0, DODGE_CAP)
+	# BOTAS DO MENSAGEIRO (etapa 9): +0,15 de esquiva e a esquiva IGNORA o teto.
+	var cap := DODGE_CAP
+	if UniqueItemsScript.wind_dodge(defender):
+		chance += UniqueItemsScript.dodge_bonus(defender)
+		cap = UniqueItemsScript.DODGE_CAP_RAISED
+	return clampf(chance, 0.0, cap)
 
 ## Chance de AUTO-DEFESA do alvo (DEF): aparta parte do golpe.
 static func block_chance(defender) -> float:
@@ -271,11 +277,15 @@ static func block_chance(defender) -> float:
 		return 0.0
 	return clampf(float(defender.defence) * BLOCK_PER_DEF, 0.0, BLOCK_CAP)
 
-## Chance de ACERTO CRÍTICO do atacante (base + SORTE).
+## Chance de ACERTO CRÍTICO do atacante (base + SORTE). Inclui o AFIXO "Cortante"
+## (crit_bonus em pontos percentuais) e as LUVAS DO CARRASCO (+15%, etapa 9).
 static func critical_chance(attacker) -> float:
 	if attacker == null:
 		return CRIT_BASE
-	return clampf(CRIT_BASE + float(attacker.luck) * CRIT_PER_LUCK, 0.0, 1.0)
+	var affix := 0.0
+	if "crit_bonus" in attacker:
+		affix = float(attacker.crit_bonus) * 0.01
+	return clampf(CRIT_BASE + float(attacker.luck) * CRIT_PER_LUCK + affix + UniqueItemsScript.crit_bonus(attacker), 0.0, 1.0)
 
 ## Resolve UM ataque com o feedback pedido, campo por campo:
 ##  {hit, missed, dodged, blocked, blocked_amount, damage, entered,
@@ -323,6 +333,9 @@ static func resolve_attack(attacker, defender, multiplier: float = 1.0, accuracy
 	# que ele RECEBE (Frágil +25% em golpe pesado, Couraçado −20% melee, Vidro +15%).
 	raw_damage *= TraitSystemScript.damage_dealt_multiplier(attacker)
 	raw_damage *= TraitSystemScript.damage_taken_multiplier(defender, is_melee, is_heavy)
+	# GLÁDIO DO GRANDE GLADIADOR (etapa 9): +20% de dano corpo a corpo.
+	if is_melee:
+		raw_damage *= 1.0 + UniqueItemsScript.melee_damage_bonus(attacker)
 	var damage := maxi(1, roundi(raw_damage))
 	# (4) DEFESA FIRME do turno anterior reduz o dano que chega a entrar.
 	if guard_bonus > 0:
@@ -351,7 +364,9 @@ static func resolve_attack(attacker, defender, multiplier: float = 1.0, accuracy
 	# (7) REVIDAR: quem aparou pode contra-atacar devolvendo parte do aparado ao
 	# atacante (o contra-golpe é MENOR que o golpe original). Isso alimenta o
 	# evento +5 da felicidade do público.
-	if blocked_amount > 0 and randf() < COUNTER_CHANCE:
+	# ADAGA DA VIÚVA (etapa 9): quem apara com ela REVIDA SEMPRE (contra-ataque
+	# garantido); caso contrário, vale a chance normal de contra-atacar.
+	if blocked_amount > 0 and (UniqueItemsScript.always_counter(defender) or randf() < COUNTER_CHANCE):
 		countered = true
 		var counter_damage := maxi(1, roundi(float(blocked_amount) * COUNTER_DAMAGE_FRACTION))
 		var counter_split: Dictionary = attacker.absorb_damage(counter_damage)
@@ -388,6 +403,8 @@ static func enemy_for_level(level: int, template: Dictionary):
 		"base_charisma": int(template.get("base_luck", 4)) + (safe_level - 1) * 2,
 		"base_luck": int(template.get("base_luck", 4)) + (safe_level - 1) * 2,
 		"boss": bool(template.get("boss", false)),
+		# GRAU DE DIFICULDADE (etapa 9 / §5.3): define a tabela de drop do boss.
+		"grade": int(template.get("grade", 1)),
 		# TRAÇO de combate (item 8): id do catálogo de TraitSystem; "" sem traço.
 		"trait": str(template.get("trait", "")),
 	})
@@ -405,12 +422,18 @@ static func choose_enemy_action() -> Dictionary:
 static func taunt_chance(attacker, defender) -> float:
 	if attacker == null or defender == null:
 		return 0.0
+	# ELMO DO IMPERADOR (etapa 9): IMUNE a Taunt — o taunt nunca pega.
+	if UniqueItemsScript.taunt_immune(defender):
+		return 0.0
 	var chance := TAUNT_BASE
 	chance += (float(attacker.charisma) - float(defender.charisma)) * TAUNT_CHA_WEIGHT
 	chance += float(attacker.strength) * TAUNT_STR_WEIGHT
 	chance += float(attacker.luck) * TAUNT_LUCK_WEIGHT
 	chance -= float(defender.defence) * TAUNT_DEF_PENALTY
 	chance -= float(defender.luck) * TAUNT_LUCK_RESIST
+	# AFIXO "Teimoso" (taunt_resist em p.p.): resistência extra ao Taunt.
+	if "taunt_resist" in defender:
+		chance -= float(defender.taunt_resist) * 0.01
 	return clampf(chance, TAUNT_CHANCE_MIN, TAUNT_CHANCE_MAX)
 
 ## Resistência ao EMPURRÃO para frente (SORTE): quem tem mais SORTE resiste mais.

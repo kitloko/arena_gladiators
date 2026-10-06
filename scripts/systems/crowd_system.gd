@@ -132,6 +132,11 @@ func rank_points_or(p_rank_points: int) -> int:
 		return RankSystemScript.tier_index_for(p_rank_points)
 	return RankSystemScript.tier_index_for(rank_points)
 
+## BÔNUS de item único (etapa 9, Manto do Público): soma felicidade extra ao
+## evento (limitado ao teto) e registra como evento logável.
+func apply_bonus(event_id: String, delta: int) -> Dictionary:
+	return _commit(event_id, delta)
+
 func clear_exposed() -> void:
 	exposed = false
 
@@ -242,6 +247,8 @@ static func label_for(event_id: String) -> String:
 			return "bebeu poção"
 		"exhibit":
 			return "exibição"
+		"exhibit_bonus":
+			return "Manto do Público"
 		"cold":
 			return "arena fria"
 		"decay":

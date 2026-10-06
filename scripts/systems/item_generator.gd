@@ -8,7 +8,7 @@ extends RefCounted
 ## Bônus conforme a peça: armas dão STR (dano), ATT (precisão), AGI e SOR;
 ## peças de proteção dão 'armour' (pool separado da vida), DEF, VIT, AGI, SOR e CHA.
 
-const PER_TYPE := 3
+const PER_TYPE := 5
 
 const RARITIES := [
 	{"id": "comum", "label": "Comum", "weight": 45, "mult": 1.0, "color": "b9b0be"},
@@ -21,6 +21,36 @@ const RARITIES := [
 ## entra no preço com peso reduzido porque é pool, não atributo).
 const BONUS_KEYS := ["str", "att", "def", "agi", "vit", "cha", "luck", "armour"]
 
+## AFIXOS (docs/PLANO_3.0.md §5.2): bônus ADICIONAIS que o gerador aplica por cima
+## do perfil da peça, com LIMITES CLAROS por raridade. Mistura bônus por atributo
+## (STR/ATT/DEF/AGI/VIT/CAR/SOR/armadura), chance de CRÍTICO, RESISTÊNCIA A TAUNT
+## e OURO EXTRA por vitória — todos ligados à mecânica de combate/economia.
+const AFFIXES := [
+	{"id": "of_strength", "label": "da Força", "stat": "strength_bonus", "min": 1, "max": 3},
+	{"id": "of_attack", "label": "Precisa", "stat": "attack_bonus", "min": 1, "max": 3},
+	{"id": "of_defence", "label": "Robusta", "stat": "defence_bonus", "min": 1, "max": 3},
+	{"id": "of_agility", "label": "da Agilidade", "stat": "agility_bonus", "min": 1, "max": 3},
+	{"id": "of_vitality", "label": "Vigorosa", "stat": "vitality_bonus", "min": 1, "max": 2},
+	{"id": "of_charisma", "label": "Vistosa", "stat": "charisma_bonus", "min": 1, "max": 2},
+	{"id": "of_luck", "label": "da Sorte", "stat": "luck_bonus", "min": 1, "max": 3},
+	{"id": "reinforced", "label": "Reforçada", "stat": "armour", "min": 2, "max": 6},
+	{"id": "keen", "label": "Cortante", "stat": "crit_bonus", "min": 2, "max": 5},
+	{"id": "stubborn", "label": "Teimoso", "stat": "taunt_resist", "min": 4, "max": 10},
+	{"id": "greedy", "label": "Cobiçoso", "stat": "gold_bonus", "min": 3, "max": 8},
+]
+
+## Quantos afixos cada raridade recebe [mínimo, máximo]. Comum não recebe nenhum.
+const AFFIX_COUNT_BY_RARITY := {
+	"comum": [0, 0], "incomum": [1, 1], "raro": [1, 2], "epico": [2, 3],
+}
+
+## Campos de afixo de um item (os 8 atributos + os três exclusivos).
+const AFFIX_STAT_KEYS := [
+	"strength_bonus", "attack_bonus", "defence_bonus", "agility_bonus",
+	"vitality_bonus", "charisma_bonus", "luck_bonus", "armour",
+	"crit_bonus", "taunt_resist", "gold_bonus",
+]
+
 ## Categorias de topo da loja com seus tipos (subcategorias).
 static func top_categories() -> Array[Dictionary]:
 	return [
@@ -31,23 +61,23 @@ static func top_categories() -> Array[Dictionary]:
 ## Perfis por tipo de arma (bônus base por nível 1, raridade comum).
 static func _weapon_types() -> Array[Dictionary]:
 	return [
-		{"id": "espada", "label": "Espadas", "slot": "weapon", "kind": "melee", "reach": 1, "hands": 1, "nouns": ["Espada curta", "Espada de aço", "Espada longa", "Gládio"], "profile": {"str": 3.2}},
-		{"id": "adaga", "label": "Adagas", "slot": "weapon", "kind": "melee", "reach": 1, "hands": 1, "nouns": ["Adaga", "Adaga serrilhada", "Estilete", "Punhal"], "profile": {"str": 1.7, "agi": 1.5, "luck": 1.0}},
-		{"id": "machado", "label": "Machados", "slot": "weapon", "kind": "melee", "reach": 1, "hands": 1, "nouns": ["Machado de 1 mão", "Machado de batalha", "Machado largo"], "profile": {"str": 4.4}},
-		{"id": "lanca", "label": "Lanças", "slot": "weapon", "kind": "melee", "reach": 2, "hands": 2, "nouns": ["Lança", "Lança longa", "Pique"], "profile": {"str": 2.7, "att": 0.8, "def": 0.8}},
-		{"id": "arco", "label": "Arcos", "slot": "weapon", "kind": "ranged", "reach": 1, "hands": 2, "nouns": ["Arco curto", "Arco de caça", "Arco composto"], "profile": {"str": 2.9, "att": 1.0}},
-		{"id": "besta", "label": "Bestas", "slot": "weapon", "kind": "ranged", "reach": 1, "hands": 2, "nouns": ["Besta", "Besta de guerra"], "profile": {"str": 3.9, "att": 1.0}},
-		{"id": "arremesso", "label": "Facas de arremesso", "slot": "weapon", "kind": "ranged", "reach": 1, "hands": 1, "nouns": ["Facas de arremesso", "Shuriken"], "profile": {"str": 1.6, "agi": 1.3, "luck": 1.0}},
+		{"id": "espada", "label": "Espadas", "slot": "weapon", "kind": "melee", "reach": 1, "hands": 1, "nouns": ["Espada curta", "Espada de aço", "Espada longa", "Gládio", "Lâmina larga", "Espada do legionário"], "profile": {"str": 3.2}},
+		{"id": "adaga", "label": "Adagas", "slot": "weapon", "kind": "melee", "reach": 1, "hands": 1, "nouns": ["Adaga", "Adaga serrilhada", "Estilete", "Punhal", "Adaga do batedor"], "profile": {"str": 1.7, "agi": 1.5, "luck": 1.0}},
+		{"id": "machado", "label": "Machados", "slot": "weapon", "kind": "melee", "reach": 1, "hands": 1, "nouns": ["Machado de 1 mão", "Machado de batalha", "Machado largo", "Machado de guerra", "Machado do carrasco"], "profile": {"str": 4.4}},
+		{"id": "lanca", "label": "Lanças", "slot": "weapon", "kind": "melee", "reach": 2, "hands": 2, "nouns": ["Lança", "Lança longa", "Pique", "Lança de caça", "Sarissa"], "profile": {"str": 2.7, "att": 0.8, "def": 0.8}},
+		{"id": "arco", "label": "Arcos", "slot": "weapon", "kind": "ranged", "reach": 1, "hands": 2, "nouns": ["Arco curto", "Arco de caça", "Arco composto", "Arco longo", "Arco do atirador"], "profile": {"str": 2.9, "att": 1.0}},
+		{"id": "besta", "label": "Bestas", "slot": "weapon", "kind": "ranged", "reach": 1, "hands": 2, "nouns": ["Besta", "Besta de guerra", "Besta leve", "Balestra"], "profile": {"str": 3.9, "att": 1.0}},
+		{"id": "arremesso", "label": "Facas de arremesso", "slot": "weapon", "kind": "ranged", "reach": 1, "hands": 1, "nouns": ["Facas de arremesso", "Shuriken", "Dardos", "Machadinhas de arremesso"], "profile": {"str": 1.6, "agi": 1.3, "luck": 1.0}},
 	]
 
 ## Perfis das peças de defesa (um tipo por slot do corpo).
 static func _armor_types() -> Array[Dictionary]:
 	return [
-		{"id": "peitoral", "label": "Peitorais", "slot": "armor", "nouns": ["Túnica", "Couraça de couro", "Cota de malha", "Armadura de placas"], "profile": {"armour": 8.0, "vit": 0.5}},
-		{"id": "capacete", "label": "Capacetes", "slot": "helmet", "nouns": ["Capuz", "Elmo de ferro", "Elmo cerrado", "Bacinete"], "profile": {"armour": 4.5, "def": 0.8, "luck": 0.8}},
-		{"id": "luvas", "label": "Luvas", "slot": "gloves", "nouns": ["Ataduras", "Luvas de couro", "Manoplas de ferro"], "profile": {"str": 0.9, "armour": 2.0}},
-		{"id": "botas", "label": "Botas", "slot": "boots", "nouns": ["Sandálias", "Botas de couro", "Grevas de bronze"], "profile": {"armour": 2.2, "agi": 1.1}},
-		{"id": "cinto", "label": "Cintos", "slot": "belt", "nouns": ["Cinto de corda", "Cinto de couro", "Cinto de campeão"], "profile": {"armour": 1.6, "vit": 0.8}},
+		{"id": "peitoral", "label": "Peitorais", "slot": "armor", "nouns": ["Túnica", "Couraça de couro", "Cota de malha", "Armadura de placas", "Peitoral de escamas"], "profile": {"armour": 8.0, "vit": 0.5}},
+		{"id": "capacete", "label": "Capacetes", "slot": "helmet", "nouns": ["Capuz", "Elmo de ferro", "Elmo cerrado", "Bacinete", "Elmo do centurião"], "profile": {"armour": 4.5, "def": 0.8, "luck": 0.8}},
+		{"id": "luvas", "label": "Luvas", "slot": "gloves", "nouns": ["Ataduras", "Luvas de couro", "Manoplas de ferro", "Manoplas do gladiador"], "profile": {"str": 0.9, "armour": 2.0}},
+		{"id": "botas", "label": "Botas", "slot": "boots", "nouns": ["Sandálias", "Botas de couro", "Grevas de bronze", "Botas do mensageiro"], "profile": {"armour": 2.2, "agi": 1.1}},
+		{"id": "cinto", "label": "Cintos", "slot": "belt", "nouns": ["Cinto de corda", "Cinto de couro", "Cinto de campeão", "Cinto do legionário"], "profile": {"armour": 1.6, "vit": 0.8}},
 	]
 
 ## Rola uma raridade (comum → épico, ponderada).
@@ -171,9 +201,20 @@ static func _make_item(subtype: Dictionary, noun: String, rarity: Dictionary, it
 	for key: String in BONUS_KEYS:
 		if profile.has(key):
 			bonus[key] = maxi(0, roundi(float(profile[key]) * growth * mult) + randi_range(-1, 1))
+	# AFIXOS: bônus extras por raridade (comum = 0; épico = 2 a 3). Somam aos
+	# atributos e/ou aos três afixos exclusivos (crítico/taunt/ouro).
+	var affixes := _roll_affixes(str(rarity.get("id", "comum")))
+	var extras := {"strength_bonus": 0, "attack_bonus": 0, "defence_bonus": 0, "agility_bonus": 0, "vitality_bonus": 0, "charisma_bonus": 0, "luck_bonus": 0, "armour": 0, "crit_bonus": 0, "taunt_resist": 0, "gold_bonus": 0}
+	for affix: Dictionary in affixes:
+		var stat := str(affix.get("stat", ""))
+		if extras.has(stat):
+			extras[stat] = int(extras[stat]) + int(affix.get("value", 0))
 	var slot := str(subtype.get("slot", "weapon"))
 	var category := "arma" if slot == "weapon" else "armadura"
 	var total_stats: int = int(bonus["str"]) + int(bonus["att"]) + int(bonus["def"]) + int(bonus["agi"]) + int(bonus["vit"]) + int(bonus["cha"]) + int(bonus["luck"]) + int(round(float(bonus["armour"]) * 0.35))
+	# Os afixos entram no preço com peso menor (crítico conta mais que taunt).
+	total_stats += extras["strength_bonus"] + extras["attack_bonus"] + extras["defence_bonus"] + extras["agility_bonus"] + extras["vitality_bonus"] + extras["charisma_bonus"] + extras["luck_bonus"] + int(round(float(extras["armour"]) * 0.35))
+	total_stats += extras["crit_bonus"] * 2 + int(round(float(extras["taunt_resist"]) * 0.5)) + extras["gold_bonus"]
 	var price := int(round((10 + float(total_stats) * (8 + item_level * 2)) * (1.0 + (float(rarity.get("mult", 1.0)) - 1.0) * 0.6)))
 	price = maxi(6, price)
 	var item := {
@@ -185,14 +226,18 @@ static func _make_item(subtype: Dictionary, noun: String, rarity: Dictionary, it
 		"level": item_level,
 		"rarity": str(rarity.get("label", "Comum")),
 		"rarity_color": str(rarity.get("color", "b9b0be")),
-		"strength_bonus": int(bonus["str"]),
-		"attack_bonus": int(bonus["att"]),
-		"defence_bonus": int(bonus["def"]),
-		"agility_bonus": int(bonus["agi"]),
-		"vitality_bonus": int(bonus["vit"]),
-		"charisma_bonus": int(bonus["cha"]),
-		"luck_bonus": int(bonus["luck"]),
-		"armour": int(bonus["armour"]),
+		"strength_bonus": int(bonus["str"]) + int(extras["strength_bonus"]),
+		"attack_bonus": int(bonus["att"]) + int(extras["attack_bonus"]),
+		"defence_bonus": int(bonus["def"]) + int(extras["defence_bonus"]),
+		"agility_bonus": int(bonus["agi"]) + int(extras["agility_bonus"]),
+		"vitality_bonus": int(bonus["vit"]) + int(extras["vitality_bonus"]),
+		"charisma_bonus": int(bonus["cha"]) + int(extras["charisma_bonus"]),
+		"luck_bonus": int(bonus["luck"]) + int(extras["luck_bonus"]),
+		"armour": int(bonus["armour"]) + int(extras["armour"]),
+		"crit_bonus": int(extras["crit_bonus"]),
+		"taunt_resist": int(extras["taunt_resist"]),
+		"gold_bonus": int(extras["gold_bonus"]),
+		"affixes": affixes,
 		"price": price,
 	}
 	if slot == "weapon":
@@ -200,6 +245,56 @@ static func _make_item(subtype: Dictionary, noun: String, rarity: Dictionary, it
 		item["reach"] = int(subtype.get("reach", 1))
 		item["hands"] = int(subtype.get("hands", 1))
 	return item
+
+## Rola os afixos de um item conforme a raridade (comum não recebe nenhum).
+## Devolve uma lista de {id, label, stat, value} sem repetir o mesmo afixo.
+static func _roll_affixes(rarity_id: String) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var range_pair: Array = AFFIX_COUNT_BY_RARITY.get(rarity_id, [0, 0])
+	var count := randi_range(int(range_pair[0]), int(range_pair[1]))
+	if count <= 0:
+		return result
+	var pool := AFFIXES.duplicate()
+	pool.shuffle()
+	for i in mini(count, pool.size()):
+		var affix: Dictionary = pool[i]
+		result.append({
+			"id": str(affix.get("id", "")),
+			"label": str(affix.get("label", "")),
+			"stat": str(affix.get("stat", "")),
+			"value": randi_range(int(affix.get("min", 1)), int(affix.get("max", 1))),
+		})
+	return result
+
+## Todos os subtipos (armas + armaduras) numa lista.
+static func _all_subtypes() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for category: Dictionary in top_categories():
+		for subtype: Dictionary in category.get("subtypes", []):
+			result.append(subtype)
+	return result
+
+## Raridade pelo id (comum/incomum/raro/epico); cai em comum se desconhecida.
+static func _rarity_by_id(rarity_id: String) -> Dictionary:
+	for rarity: Dictionary in RARITIES:
+		if str(rarity.get("id", "")) == rarity_id:
+			return rarity
+	return RARITIES[0]
+
+## Item procedural de uma RARIDADE EXATA (usado pelo drop do boss por grau, §5.3).
+## Diferente de generate_reward_item (que garante um PISO de raridade), aqui a
+## raridade sorteada pela tabela é respeitada ao pé da letra.
+static func generate_item_for_rarity(player_level: int, rarity_id: String) -> Dictionary:
+	var subtypes := _all_subtypes()
+	if subtypes.is_empty():
+		return {}
+	var subtype: Dictionary = subtypes[randi_range(0, subtypes.size() - 1)]
+	var nouns: Array = subtype.get("nouns", [])
+	if nouns.is_empty():
+		return {}
+	var noun := str(nouns[randi_range(0, nouns.size() - 1)])
+	var level := maxi(1, player_level + randi_range(0, 1))
+	return _make_item(subtype, noun, _rarity_by_id(rarity_id), level)
 
 ## Ícone (assets/sprites/items/*.png) do item. Funciona para itens processuais
 ## (pelo "subtype") e para os itens legados de data/items.json (pelo id).

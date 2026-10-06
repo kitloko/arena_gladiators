@@ -12,6 +12,8 @@ const HaggleSystemScript := preload("res://scripts/systems/haggle_system.gd")
 const BettingSystemScript := preload("res://scripts/systems/betting_system.gd")
 const PotionSystemScript := preload("res://scripts/systems/potion_system.gd")
 const PresentationSystemScript := preload("res://scripts/systems/presentation_system.gd")
+const UniqueItemsScript := preload("res://scripts/systems/unique_items.gd")
+const BossDropTableScript := preload("res://scripts/systems/boss_drop_table.gd")
 
 ## Teto duro do multiplicador do público na entrada de on_victory. O teto REAL
 ## depende do rank (CrowdSystem.reward_multiplier), que passa de ×2,0 nas faixas
@@ -391,8 +393,9 @@ func _on_free_victory(gold_reward: int, xp_reward: int, crowd: float) -> Diction
 	var streak_mult := EconomySystemScript.streak_reward_multiplier(win_streak)
 	var band_mult := float(arena_band().get("gold_multiplier", 1.0))
 	# Ouro: escala com o tier do inimigo E com a sequência de vitórias E com a
-	# felicidade do público (item H) E com a faixa de arena (ideia 9).
-	var gold_gain := int(round(float(maxi(0, gold_reward)) * mult * streak_mult * crowd * band_mult))
+	# felicidade do público (item H) E com a faixa de arena (ideia 9) E com os
+	# itens de OURO EXTRA (afixo "Cobiçoso" + Pingente do Sortudo, etapa 9).
+	var gold_gain := int(round(float(maxi(0, gold_reward)) * mult * streak_mult * crowd * band_mult * player_gold_multiplier()))
 	# XP: escala SÓ com o tier (bônus pequeno). A sequência multiplicava o XP também,
 	# e com 5 vitórias seguidas no nível 1 a luta rendia mais XP que o nível exigia —
 	# o personagem subia de nível a cada luta.
@@ -410,7 +413,7 @@ func _on_tournament_victory(gold_reward: int, xp_reward: int, crowd_multiplier: 
 	var tier := tournament_tier()
 	var multiplier := float(tier.get("reward_multiplier", 1.0))
 	# Mesma arena do item H: a felicidade do público multiplica o prêmio da rodada.
-	var gold_prize := int(round(float(maxi(0, gold_reward)) * multiplier * clampf(crowd_multiplier, 1.0, 2.0)))
+	var gold_prize := int(round(float(maxi(0, gold_reward)) * multiplier * clampf(crowd_multiplier, 1.0, 2.0) * player_gold_multiplier()))
 	var xp_gain := int(round(float(maxi(0, xp_reward)) * multiplier))
 	var leveled_up: bool = player.grant_experience(xp_gain)
 	tourney_prize += gold_prize
@@ -420,10 +423,11 @@ func _on_tournament_victory(gold_reward: int, xp_reward: int, crowd_multiplier: 
 	var loot: Array[Dictionary] = []
 	var cleared := false
 	if final_round:
-		# Campeão: leva todo o prêmio + o item único do Grande Gladiador — agora ele
-		# entra na BOLSA (antes era equipado em silêncio, então o prêmio não aparecia).
+		# Campeão: leva todo o prêmio + o ITEM DO BOSS, sorteado pela TABELA DE DROP
+		# por GRAU de dificuldade (§5.3). Agora ele entra na BOLSA (antes era equipado
+		# em silêncio, então o prêmio não aparecia).
 		player.gold += tourney_prize
-		var trophy := _grant_unique_item("gladius_magnus")
+		var trophy := _grant_reward_item(_final_boss_grade(), tourney_tier_id)
 		if not trophy.is_empty():
 			loot.append(trophy)
 		cleared = true
@@ -434,18 +438,67 @@ func _on_tournament_victory(gold_reward: int, xp_reward: int, crowd_multiplier: 
 	player_changed.emit(player)
 	return {"gold": 0, "prize": gold_prize, "experience": xp_gain, "leveled_up": leveled_up, "campaign_cleared": cleared, "tournament": true, "loot": loot}
 
-## Prêmio de rodada: item procedural que iria para a bolsa (não equipa à força).
-## DORMENTE nesta etapa (6): o torneio só dá item na rodada final (§5.1). Fica
-## aqui para a TABELA DE DROP por dificuldade da etapa 10, que volta a sorteá-lo.
-func _grant_reward_item(player_level: int, tier_index: int) -> Dictionary:
+## TABELA DE DROP POR GRAU DE DIFICULDADE (etapa 9 / §5.3): o prêmio do boss.
+##
+## Sorteia a RARIDADE pela linha do GRAU do boss (empurrada pelo tier do torneio,
+## com peso pequeno do rank e teto anti-farm de única por torneio) e devolve UM
+## item. Lendário vira uma VARIAÇÃO ÚNICA do conjunto do torneio — SEM REPETIR
+## enquanto o jogador não tiver todas. Substitui a entrega fixa do Gladius (a
+## função dormente entra em serviço nesta etapa).
+func _grant_reward_item(grade: int, tier_id: String) -> Dictionary:
 	if player == null:
 		return {}
-	var minimum_rarity := clampi(tier_index, 0, 2)
-	var item := ItemGeneratorScript.generate_reward_item(player_level, minimum_rarity)
+	var tier_index := _tier_index(tier_id)
+	var rank_tier := RankSystemScript.tier_index_for(player.rank_points)
+	var rarity_id := BossDropTableScript.sample_drop_rarity(grade, tier_index, rank_tier)
+	var item := {}
+	if rarity_id == "lendario":
+		var unique_id := UniqueItemsScript.pick_unique(tier_id, _owned_unique_ids())
+		if unique_id != "":
+			item = _grant_unique_item(unique_id)
 	if item.is_empty():
-		return {}
-	player.remember_item(item)
+		# Comum/Incomum/Raro/Épico — ou lendário quando já se tem todas as únicas.
+		var fallback := "epico" if rarity_id == "lendario" else rarity_id
+		item = ItemGeneratorScript.generate_item_for_rarity(player.level, fallback)
+		if not item.is_empty():
+			player.remember_item(item)
+			player_changed.emit(player)
 	return item
+
+## Ids das VARIAÇÕES ÚNICAS que o jogador já possui (anti-farm: sem repetir).
+func _owned_unique_ids() -> Array:
+	var result: Array = []
+	if player == null:
+		return result
+	for item_id: Variant in player.owned_item_ids:
+		var id := str(item_id)
+		if UniqueItemsScript.tier_of(id) != "":
+			result.append(id)
+	return result
+
+## GRAU de dificuldade do boss da rodada final (1 a 5, §5.3).
+func _final_boss_grade() -> int:
+	if not is_final_tournament_round():
+		return 1
+	var rounds: Array = tournament_tier().get("rounds", [])
+	if rounds.is_empty():
+		return 1
+	var enemies := ContentRepositoryScript.load_enemies()
+	var template := ContentRepositoryScript.find_enemy(enemies, str(rounds[rounds.size() - 1]))
+	return BossDropTableScript.clamp_grade(int(template.get("grade", 1)))
+
+## GRAU de dificuldade (1 a 5 ⭐) do boss atual — a arena/apresentação exibem.
+func current_boss_grade() -> int:
+	if current_enemy == null:
+		return 1
+	return BossDropTableScript.clamp_grade(int(current_enemy.grade))
+
+## Multiplicador de OURO por vitória do jogador (afixo "Cobiçoso" + Pingente do
+## Sortudo, etapa 9). Fica 1.0 sem itens de ouro extra.
+func player_gold_multiplier() -> float:
+	if player == null:
+		return 1.0
+	return (1.0 + float(player.gold_bonus) * 0.01) * UniqueItemsScript.gold_multiplier(player)
 
 func _grant_unique_item(item_id: String) -> Dictionary:
 	var item := ContentRepositoryScript.find_item(ContentRepositoryScript.load_items(), item_id)
