@@ -152,9 +152,12 @@ func start_new_campaign(player_name: String, allocation: Dictionary = {}) -> voi
 		"archetype_id": "",
 		"level": 1,
 		"gold": EconomySystemScript.starting_gold(),
-		"base_max_health": EconomySystemScript.neutral_total("health", allocation),
+		"base_strength": EconomySystemScript.neutral_total("strength", allocation),
 		"base_attack": EconomySystemScript.neutral_total("attack", allocation),
-		"base_defense": EconomySystemScript.neutral_total("defense", allocation),
+		"base_defence": EconomySystemScript.neutral_total("defence", allocation),
+		"base_agility": EconomySystemScript.neutral_total("agility", allocation),
+		"base_vitality": EconomySystemScript.neutral_total("vitality", allocation),
+		"base_charisma": EconomySystemScript.neutral_total("charisma", allocation),
 		"base_luck": EconomySystemScript.neutral_total("luck", allocation),
 	})
 	player.health = player.max_health
@@ -177,13 +180,10 @@ func save_progress() -> bool:
 		return false
 	return SaveSystemScript.save_game(_export_save())
 
-## Salva no modo Arena Livre quando não há nível pendente para escolher
-## (senão o save guardaria um nível ainda não decidido). Usado ao fechar a
-## janela ou logo após aplicar vitória/derrota, para não perder progresso.
+## Salva no modo Arena Livre. Pontos de nível pendentes NÃO impedem o save: eles
+## são distribuídos depois, na tela de Personagem, e não podem ser perdidos.
 func persist_if_free() -> void:
 	if player == null or mode != "free":
-		return
-	if player.pending_level_ups > 0:
 		return
 	save_progress()
 
@@ -353,30 +353,40 @@ func _on_tournament_defeat() -> Dictionary:
 	return {"penalty": penalty, "boss": is_boss_stage(), "campaign_lost": true, "tournament": true, "kept": kept}
 
 func rest() -> Dictionary:
-	## Descanso pago: cada ponto de vida custa ouro (sobe com o nível). Sem ouro
-	## suficiente, recupera apenas a parte proporcional ao ouro disponível.
+	## Descanso pago: cada ponto de vida/armadura faltante custa ouro (sobe com o
+	## nível). Restaura vida e armadura juntas. Sem ouro suficiente, recupera
+	## apenas a parte proporcional ao ouro disponível (vida primeiro, depois armadura).
 	var info := {"healed": 0, "cost": 0, "full": false, "missing": 0}
 	if player == null:
 		return info
-	var missing := maxi(0, player.max_health - player.health)
+	var missing: int = int(player.missing_pool())
 	info["missing"] = missing
 	if missing == 0:
 		return info
-	var per_hp := EconomySystemScript.rest_hp_price(player.level)
-	var full_cost := missing * per_hp
+	var per_unit := EconomySystemScript.rest_hp_price(player.level)
+	var full_cost := missing * per_unit
 	if player.gold >= full_cost:
 		player.gold -= full_cost
 		player.heal_full()
 		info = {"healed": missing, "cost": full_cost, "full": true, "missing": missing}
 	else:
-		var units := mini(missing, int(player.gold / per_hp))
-		var cost := units * per_hp
+		var units := mini(missing, int(player.gold / per_unit))
+		var cost := units * per_unit
 		player.gold -= cost
-		player.health = mini(player.max_health, player.health + units)
+		_apply_rest_units(units)
 		info = {"healed": units, "cost": cost, "full": units >= missing, "missing": missing}
 	player_changed.emit(player)
 	save_progress()
 	return info
+
+## Recupera `units` pontos de descanso: enche a vida primeiro, depois a armadura.
+func _apply_rest_units(units: int) -> void:
+	var remaining := units
+	var to_health := mini(remaining, maxi(0, player.max_health - player.health))
+	player.health += to_health
+	remaining -= to_health
+	var to_armour := mini(remaining, maxi(0, player.max_armour - player.armour))
+	player.armour += to_armour
 
 ## Custo em ouro do descanso completo (toda a vida faltante).
 func full_rest_cost() -> int:
@@ -454,27 +464,31 @@ func add_item_to_bag(item: Dictionary) -> bool:
 func purchase_item(item: Dictionary) -> bool:
 	if player == null or item.is_empty():
 		return false
-	var price := int(item.get("price", 0))
+	var price := EconomySystemScript.price_for_player(item, player)
 	if player.gold < price:
 		return false
 	player.gold -= price
 	equip_item(item)
 	return true
 
+## Preço de compra para o jogador atual (com o desconto de CARISMA/SORTE).
+func item_price(item: Dictionary) -> int:
+	return EconomySystemScript.price_for_player(item, player)
+
 # --- Nível -------------------------------------------------------------
 
-func level_up_options() -> Array[Dictionary]:
-	return EconomySystemScript.level_up_options()
+## Os SETE atributos entre os quais os pontos de nível são distribuídos.
+func attribute_definitions() -> Array[Dictionary]:
+	return EconomySystemScript.attribute_definitions()
 
-func choose_level_up(option_id: String) -> bool:
+## Gasta um dos pontos pendentes no atributo escolhido (tela de Personagem).
+func spend_attribute_point(attribute_id: String) -> bool:
 	if player == null:
 		return false
-	for option: Dictionary in level_up_options():
-		if str(option.get("id", "")) == option_id:
-			if player.apply_level_up(option):
-				player_changed.emit(player)
-				save_progress()
-				return true
+	if player.spend_attribute_point(attribute_id):
+		player_changed.emit(player)
+		save_progress()
+		return true
 	return false
 
 ## Habilidade do arquétipo (Investida / Golpe Devastador / Estocada).

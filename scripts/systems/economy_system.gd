@@ -45,7 +45,7 @@ static func is_sellable(item: Dictionary) -> bool:
 
 ## Soma dos bônus de um item de conteúdo (usado para comparar melhorias).
 static func item_total_bonus(item: Dictionary) -> int:
-	return int(item.get("attack_bonus", 0)) + int(item.get("defense_bonus", 0))
+	return int(item.get("strength_bonus", 0)) + int(item.get("attack_bonus", 0)) + int(item.get("defence_bonus", 0)) + int(item.get("agility_bonus", 0)) + int(item.get("vitality_bonus", 0)) + int(item.get("charisma_bonus", 0)) + int(item.get("luck_bonus", 0)) + int(item.get("armour", 0))
 
 # --- Serviços: descanso e reroll da loja ----------------------------------
 
@@ -55,11 +55,15 @@ static func item_total_bonus(item: Dictionary) -> int:
 static func rest_hp_price(player_level: int) -> int:
 	return maxi(1, 1 + int(maxi(1, player_level) / 6))
 
-## Custo para recuperar toda a vida que falta no descanso.
+## Custo para recuperar toda a vida E a armadura que faltam no descanso.
 static func full_rest_cost(player) -> int:
 	if player == null:
 		return 0
-	var missing := maxi(0, int(player.max_health) - int(player.health))
+	var missing := 0
+	if player.has_method("missing_pool"):
+		missing = int(player.missing_pool())
+	else:
+		missing = maxi(0, int(player.max_health) - int(player.health))
 	return missing * rest_hp_price(int(player.level))
 
 ## Custo (em ouro) para rerolar o estoque da loja.
@@ -77,14 +81,23 @@ static func streak_reward_multiplier(win_streak: int) -> float:
 static func streak_bonus_percent(win_streak: int) -> int:
 	return int(round((streak_reward_multiplier(win_streak) - 1.0) * 100.0))
 
-## Opções de treino ao subir de nível. A aplicação é genérica no modelo
-## (base_* + amount, com cura opcional).
-static func level_up_options() -> Array[Dictionary]:
+# --- Atributos (7) ---------------------------------------------------------
+
+## Pontos de atributo ganhos por nível: distribuídos entre os 7 atributos.
+static func attribute_points_per_level() -> int:
+	return 4
+
+## Os SETE atributos do jogo. STA e MAG não existem nesta versão.
+## `stat` é o campo base_* do modelo; `short` é a sigla usada nas telas.
+static func attribute_definitions() -> Array[Dictionary]:
 	return [
-		{"id": "vigor", "label": "Vigor", "description": "+14 de vida máxima e cura completa", "stat": "base_max_health", "amount": 14, "heal": true},
-		{"id": "power", "label": "Força", "description": "+4 de ataque", "stat": "base_attack", "amount": 4, "heal": false},
-		{"id": "guard", "label": "Proteção", "description": "+4 de defesa", "stat": "base_defense", "amount": 4, "heal": false},
-		{"id": "luck", "label": "Sorte", "description": "+2 de sorte", "stat": "base_luck", "amount": 2, "heal": false},
+		{"id": "strength", "label": "Força", "short": "STR", "stat": "base_strength"},
+		{"id": "attack", "label": "Ataque", "short": "ATT", "stat": "base_attack"},
+		{"id": "defence", "label": "Defesa", "short": "DEF", "stat": "base_defence"},
+		{"id": "agility", "label": "Agilidade", "short": "AGI", "stat": "base_agility"},
+		{"id": "vitality", "label": "Vitalidade", "short": "VIT", "stat": "base_vitality"},
+		{"id": "charisma", "label": "Carisma", "short": "CHA", "stat": "base_charisma"},
+		{"id": "luck", "label": "Sorte", "short": "SOR", "stat": "base_luck"},
 	]
 
 # --- Criação neutra (sem classe) -----------------------------------------
@@ -96,13 +109,16 @@ static func creation_points() -> int:
 static func starting_gold() -> int:
 	return 80
 
-## Perfis dos quatro atributos: valor base neutro + ganho por ponto.
+## Perfis dos SETE atributos: valor base neutro + ganho por ponto.
 static func creation_stats() -> Dictionary:
 	return {
-		"health": {"label": "Vida", "base": 46, "per_point": 6, "stat": "base_max_health"},
-		"attack": {"label": "Força", "base": 8, "per_point": 1, "stat": "base_attack"},
-		"defense": {"label": "Defesa", "base": 3, "per_point": 1, "stat": "base_defense"},
-		"luck": {"label": "Sorte", "base": 5, "per_point": 1, "stat": "base_luck"},
+		"strength": {"label": "Força", "short": "STR", "base": 8, "per_point": 1, "stat": "base_strength"},
+		"attack": {"label": "Ataque", "short": "ATT", "base": 8, "per_point": 1, "stat": "base_attack"},
+		"defence": {"label": "Defesa", "short": "DEF", "base": 3, "per_point": 1, "stat": "base_defence"},
+		"agility": {"label": "Agilidade", "short": "AGI", "base": 5, "per_point": 1, "stat": "base_agility"},
+		"vitality": {"label": "Vitalidade", "short": "VIT", "base": 6, "per_point": 1, "stat": "base_vitality"},
+		"charisma": {"label": "Carisma", "short": "CHA", "base": 5, "per_point": 1, "stat": "base_charisma"},
+		"luck": {"label": "Sorte", "short": "SOR", "base": 5, "per_point": 1, "stat": "base_luck"},
 	}
 
 ## Valor final de um atributo dado a distribuição de pontos.
@@ -110,3 +126,22 @@ static func neutral_total(stat_id: String, allocation: Dictionary) -> int:
 	var spec: Dictionary = creation_stats().get(stat_id, {})
 	var count := int(allocation.get(stat_id, 0))
 	return int(spec.get("base", 0)) + count * int(spec.get("per_point", 0))
+
+# --- Desconto/pechincha na loja -------------------------------------------
+
+## Desconto na loja: CARISMA é o principal; SORTE ajuda na pechincha.
+## Limitado a 35% para não zerar o preço.
+static func shop_discount(player) -> float:
+	if player == null:
+		return 0.0
+	var cha := float(player.charisma)
+	var luk := float(player.luck)
+	return clampf(cha * 0.010 + luk * 0.005, 0.0, 0.35)
+
+## Preço efetivo de compra para um jogador (com o desconto de CARISMA/SORTE).
+static func price_for_player(item: Dictionary, player) -> int:
+	var base := int(item.get("price", 0))
+	if base <= 0:
+		return 0
+	var discounted := float(base) * (1.0 - shop_discount(player))
+	return maxi(1, int(round(discounted)))

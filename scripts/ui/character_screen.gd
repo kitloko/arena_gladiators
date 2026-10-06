@@ -40,6 +40,7 @@ var _items: Array[Dictionary] = []
 var _attributes: RichTextLabel
 var _xp_bar: ProgressBar
 var _xp_label: Label
+var _points_box: VBoxContainer
 var _equipment_grid: GridContainer
 var _bag_zone: ItemDropPanelScript
 var _bag: VBoxContainer
@@ -67,13 +68,16 @@ func _build_interface() -> void:
 	root.add_child(_make_label("PERSONAGEM", 28, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
 	_attributes = RichTextLabel.new()
 	_attributes.bbcode_enabled = true
-	# 3 linhas (nome/nível/ouro, atributos, resumo de equipamento).
-	_attributes.custom_minimum_size = Vector2(0, 78)
-	_attributes.add_theme_font_size_override("normal_font_size", 16)
+	# 4 linhas: nome/nível/ouro, vida+armadura, os 7 atributos, resumo de equipamento.
+	_attributes.custom_minimum_size = Vector2(0, 96)
+	_attributes.add_theme_font_size_override("normal_font_size", 15)
 	_attributes.add_theme_color_override("default_color", MUTED)
 	_attributes.add_theme_stylebox_override("normal", _panel_style(PANEL_DARK, 10, 12))
 	root.add_child(_attributes)
 	root.add_child(_build_xp_row())
+	_points_box = VBoxContainer.new()
+	_points_box.add_theme_constant_override("separation", 6)
+	root.add_child(_points_box)
 	root.add_child(_build_columns())
 	_status = _make_label(HINT, 14, DIM)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -158,10 +162,11 @@ func _refresh() -> void:
 	_xp_bar.max_value = maxi(1, p.required_experience())
 	_xp_bar.value = mini(p.experience, p.required_experience())
 	var pending := ""
-	if p.pending_level_ups > 0:
-		pending = "   •   [color=#f5c451]%d treino(s) esperando[/color]" % p.pending_level_ups
-	_attributes.text = "[color=#f5c451]%s[/color]  •  Nível %d  •  %d ouro\n[color=#79cf7b]VIDA %d/%d[/color]   [color=#d9a45b]ATQ %d[/color]   [color=#70b9e8]DEF %d[/color]   [color=#e06bb5]SORTE %d[/color]\n[color=#bbaec1]Equipado: %d de 6 slots   •   itens na bolsa: %d[/color]%s" % [
-		p.display_name, p.level, p.gold, p.health, p.max_health, p.attack, p.defense, p.luck,
+	if p.pending_points > 0:
+		pending = "   •   [color=#f5c451]%d ponto(s) de atributo esperando[/color]" % p.pending_points
+	_attributes.text = "[color=#f5c451]%s[/color]  •  Nível %d  •  %d ouro\n[color=#79cf7b]VIDA %d/%d[/color]   [color=#70b9e8]ARMADURA %d/%d[/color]\n[color=#bbaec1]FOR %d   ATT %d   DEF %d   AGI %d   VIT %d   CAR %d   SOR %d[/color]\n[color=#bbaec1]Equipado: %d de 6 slots   •   itens na bolsa: %d[/color]%s" % [
+		p.display_name, p.level, p.gold, p.health, p.max_health, p.armour, p.max_armour,
+		p.strength, p.attack, p.defence, p.agility, p.vitality, p.charisma, p.luck,
 		_equipped_count(), p.bag_items().size(), pending,
 	]
 	_xp_label.text = "XP %d / %d para o nível %d" % [p.experience, p.required_experience(), p.level + 1]
@@ -170,6 +175,45 @@ func _refresh() -> void:
 	for slot: String in SLOT_ORDER:
 		_equipment_grid.add_child(_make_slot(slot))
 	_refresh_bag()
+	_refresh_points()
+
+## Painel de distribuição dos pontos de atributo pendentes (os 7 atributos).
+func _refresh_points() -> void:
+	if _points_box == null:
+		return
+	for child in _points_box.get_children():
+		child.queue_free()
+	if GameState.player == null:
+		return
+	var pending: int = int(GameState.player.pending_points)
+	if pending <= 0:
+		return
+	_points_box.add_child(_make_label("PONTOS PARA DISTRIBUIR: %d" % pending, 16, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	var grid := GridContainer.new()
+	grid.columns = 7
+	grid.add_theme_constant_override("h_separation", 8)
+	for definition: Dictionary in GameState.attribute_definitions():
+		var stat_id := str(definition.get("id", ""))
+		var cell := VBoxContainer.new()
+		cell.add_theme_constant_override("separation", 2)
+		cell.add_child(_make_label(str(definition.get("short", stat_id)), 13, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+		var button := Button.new()
+		button.name = "attrspend_%s" % stat_id
+		button.text = "+"
+		button.custom_minimum_size = Vector2(56, 30)
+		button.add_theme_font_size_override("font_size", 16)
+		button.pressed.connect(spend_point.bind(stat_id))
+		button.add_theme_color_override("font_color", Color("1a1420"))
+		button.add_theme_stylebox_override("normal", _panel_style(Color("79cf7b"), 6, 6))
+		button.add_theme_stylebox_override("hover", _panel_style(Color("8fd891"), 6, 6))
+		cell.add_child(button)
+		grid.add_child(cell)
+	_points_box.add_child(grid)
+
+## Gasta um ponto pendente no atributo e re-renderiza (usado pela UI e pelo QA).
+func spend_point(stat_id: String) -> void:
+	GameState.spend_attribute_point(stat_id)
+	_refresh.call_deferred()
 
 func _equipped_count() -> int:
 	if GameState.player == null:
@@ -381,14 +425,22 @@ func _icon_rect(item: Dictionary, size: int) -> TextureRect:
 
 func _bonus_text(item: Dictionary) -> String:
 	var parts: Array[String] = []
+	if int(item.get("strength_bonus", 0)) > 0:
+		parts.append("STR+%d" % int(item.get("strength_bonus", 0)))
 	if int(item.get("attack_bonus", 0)) > 0:
-		parts.append("ATQ+%d" % int(item.get("attack_bonus", 0)))
-	if int(item.get("defense_bonus", 0)) > 0:
-		parts.append("DEF+%d" % int(item.get("defense_bonus", 0)))
+		parts.append("ATT+%d" % int(item.get("attack_bonus", 0)))
+	if int(item.get("defence_bonus", 0)) > 0:
+		parts.append("DEF+%d" % int(item.get("defence_bonus", 0)))
+	if int(item.get("agility_bonus", 0)) > 0:
+		parts.append("AGI+%d" % int(item.get("agility_bonus", 0)))
+	if int(item.get("vitality_bonus", 0)) > 0:
+		parts.append("VIT+%d" % int(item.get("vitality_bonus", 0)))
+	if int(item.get("charisma_bonus", 0)) > 0:
+		parts.append("CAR+%d" % int(item.get("charisma_bonus", 0)))
 	if int(item.get("luck_bonus", 0)) > 0:
-		parts.append("SORTE+%d" % int(item.get("luck_bonus", 0)))
-	if int(item.get("health_bonus", 0)) > 0:
-		parts.append("VIDA+%d" % int(item.get("health_bonus", 0)))
+		parts.append("SOR+%d" % int(item.get("luck_bonus", 0)))
+	if int(item.get("armour", 0)) > 0:
+		parts.append("ARM+%d" % int(item.get("armour", 0)))
 	return "  ".join(parts)
 
 func _make_label(text_value: String, size: int, color: Color, alignment := HORIZONTAL_ALIGNMENT_LEFT) -> Label:

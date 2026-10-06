@@ -13,10 +13,12 @@ extends SceneTree
 ## Modelo (simplificado de propósito, declarado para não enganar ninguém):
 ##  - luta = troca de golpes corpo a corpo, vida cheia dos dois lados, jogador ataca primeiro;
 ##  - não modela posicionamento/alcance, defender/avançar/recuar nem os especiais dos chefes;
-##  - jogador recem-criado = distribuição dos pontos de criação (20 hoje) num build
-##    comum: 25% vida, 50% força, 20% defesa, resto em sorte;
-##  - ganho de nível = alterna Força e Vigor (metade de cada) — jogador "casual";
+##  - jogador recém-criado = distribuição dos pontos de criação (20 hoje) num build
+##    comum: 25% vitalidade, 50% força, 20% defesa, resto em sorte;
+##  - ganho de nível = 4 pontos por nível distribuídos 2 FOR / 1 VIT / 1 DEF (jogador "casual");
 ##  - "com loja" = equipa a espada e o peitoral Comum do próprio nível (a opção de base da loja).
+## A armadura é um POOL separado (absorve antes da vida) e a DEF do alvo pode aparar
+## (auto-defesa) — as duas entram na simulação porque resolve_attack as aplica.
 ## Com seed fixa, o resultado é reprodutível.
 
 const CombatResolverScript := preload("res://scripts/systems/combat_resolver.gd")
@@ -59,7 +61,7 @@ func _test_low_level_tier_is_safe(items: Array) -> void:
 		for i in 2000:
 			var enemy: Dictionary = CombatResolverScript.generate_enemy(level, items)
 			tiers[int(enemy.enemy_tier)] += 1
-			hp_max = maxi(hp_max, int(enemy.base_max_health))
+			hp_max = maxi(hp_max, GladiatorDataScript.HEALTH_BASE + int(enemy.base_vitality) * GladiatorDataScript.HEALTH_PER_VIT)
 		print("  nível %d: tier 1/2/3 = %d%%/%d%%/%d%% | maior vida %d" % [
 			level, int(round(tiers[1] / 20.0)), int(round(tiers[2] / 20.0)), int(round(tiers[3] / 20.0)), hp_max])
 		if level <= 2:
@@ -91,7 +93,7 @@ func _test_first_fight_is_fair(items: Array) -> void:
 func _test_free_arena_curve(items: Array) -> void:
 	var results := {}
 	print("")
-	print("--- Arena Livre: vitória por nível (vida/ATQ/DEF do jogador) ---")
+	print("--- Arena Livre: vitória por nível (vida/STR/DEF do jogador) ---")
 	for level: int in [1, 3, 5, 8, 10, 12, 15]:
 		var bare_wins := 0
 		var geared_wins := 0
@@ -107,7 +109,7 @@ func _test_free_arena_curve(items: Array) -> void:
 		var geared := 100.0 * geared_wins / SAMPLES
 		results[level] = {"bare": bare, "geared": geared}
 		print("  nível %2d | %3d/%3d/%3d | sem loja %3d%% | com loja %3d%%" % [
-			level, sample_geared.max_health, sample_geared.attack, sample_geared.defense,
+			level, sample_geared.max_health, sample_geared.strength, sample_geared.defence,
 			int(round(bare)), int(round(geared))])
 	_check(results[1].bare >= 92.0, "nível 1 sem loja >= 92%% (medido %d%%)" % int(round(results[1].bare)))
 	_check(results[10].bare >= 68.0, "nível 10 sem loja >= 68%% (medido %d%%)" % int(round(results[10].bare)))
@@ -128,10 +130,10 @@ func _test_player_always_favoured_early(items: Array) -> void:
 	for level: int in [1, 3, 5, 8, 10, 12, 15]:
 		var player = _make_player(level, false)
 		var foe = _mean_foe(level, items)
-		var player_hits: int = int(ceil(float(foe.max_health) / float(maxi(1, int(round(float(player.attack) - float(foe.defense) * 0.55))))))
-		var foe_hits: int = int(ceil(float(player.max_health) / float(maxi(1, int(round(float(foe.attack) - float(player.defense) * 0.55))))))
-		print("  nível %2d | você mata em %d golpes | ele te mata em %d | inimigo típico: %d vida, %d ATQ, %d DEF" % [
-			level, player_hits, foe_hits, foe.max_health, foe.attack, foe.defense])
+		var player_hits: int = int(ceil(float(foe.max_health) / float(maxi(1, int(round(float(player.strength) - float(foe.defence) * 0.55))))))
+		var foe_hits: int = int(ceil(float(player.max_health) / float(maxi(1, int(round(float(foe.strength) - float(player.defence) * 0.55))))))
+		print("  nível %2d | você mata em %d golpes | ele te mata em %d | inimigo típico: %d vida, %d STR, %d DEF" % [
+			level, player_hits, foe_hits, foe.max_health, foe.strength, foe.defence])
 		if level <= 8 and player_hits > foe_hits:
 			favourable = false
 	_check(favourable, "até o nível 8 o jogador mata em menos golpes do que morre (a curva virava no nível 4)")
@@ -208,43 +210,45 @@ func _tournament(player, rounds: Array, enemies: Array, level: int, tier_index: 
 
 ## Inimigo típico de um nível: média de 400 gerações (número redondo para a tabela).
 func _mean_foe(level: int, items: Array) -> GladiatorData:
-	var hp_sum := 0
-	var atk_sum := 0
+	var vit_sum := 0
+	var str_sum := 0
 	var def_sum := 0
 	for i in 400:
 		var enemy: Dictionary = CombatResolverScript.generate_enemy(level, items)
-		hp_sum += int(enemy.base_max_health)
-		atk_sum += int(enemy.base_attack)
-		def_sum += int(enemy.base_defense)
+		vit_sum += int(enemy.base_vitality)
+		str_sum += int(enemy.base_strength)
+		def_sum += int(enemy.base_defence)
 	return GladiatorDataScript.new({
 		"id": "media", "level": level,
-		"base_max_health": int(round(hp_sum / 400.0)),
-		"base_attack": int(round(atk_sum / 400.0)),
-		"base_defense": int(round(def_sum / 400.0)),
+		"base_vitality": int(round(vit_sum / 400.0)),
+		"base_strength": int(round(str_sum / 400.0)),
+		"base_defence": int(round(def_sum / 400.0)),
 	})
 
-## Personagem com a criação neutra do jogo, distribuindo os pontos disponíveis
-## (hoje 20) num build de jogador comum: um pouco mais de ataque que o resto.
+## Personagem com a criação neutra do jogo, distribuindo os 20 pontos num build de
+## jogador comum: um pouco mais de força que o resto.
 ## `geared` = comprou a espada e o peitoral Comum do próprio nível.
 func _make_player(level: int, geared: bool) -> GladiatorData:
 	var points: int = EconomySystemScript.creation_points()
-	# 25% em vida, 50% em força, 20% em defesa, o resto em sorte (total = pontos).
-	var health_points := int(round(float(points) * 0.25))
-	var attack_points := int(round(float(points) * 0.5))
-	var defense_points := int(round(float(points) * 0.2))
-	var luck_points: int = maxi(0, points - health_points - attack_points - defense_points)
+	# 25% em vitalidade, 50% em força, 20% em defesa, o resto em sorte (total = pontos).
+	var vitality_points := int(round(float(points) * 0.25))
+	var strength_points := int(round(float(points) * 0.5))
+	var defence_points := int(round(float(points) * 0.2))
+	var luck_points: int = maxi(0, points - vitality_points - strength_points - defence_points)
 	var player = GladiatorDataScript.new({
 		"id": "player", "display_name": "Teste", "level": 1,
-		"base_max_health": EconomySystemScript.neutral_total("health", {"health": health_points}),
-		"base_attack": EconomySystemScript.neutral_total("attack", {"attack": attack_points}),
-		"base_defense": EconomySystemScript.neutral_total("defense", {"defense": defense_points}),
+		"base_vitality": EconomySystemScript.neutral_total("vitality", {"vitality": vitality_points}),
+		"base_strength": EconomySystemScript.neutral_total("strength", {"strength": strength_points}),
+		"base_defence": EconomySystemScript.neutral_total("defence", {"defence": defence_points}),
 		"base_luck": EconomySystemScript.neutral_total("luck", {"luck": luck_points}),
 	})
-	# Um nível = uma escolha de treino; jogador casual alterna Força e Vigor.
+	# Um nível = 4 pontos, distribuídos 2 FOR / 1 VIT / 1 DEF (jogador "casual").
 	for i in (maxi(0, level - 1)):
 		player.grant_experience(player.required_experience())
-		var option: Dictionary = EconomySystemScript.level_up_options()[0 if i % 2 == 1 else 1]
-		player.apply_level_up(option)
+		player.spend_attribute_point("strength")
+		player.spend_attribute_point("strength")
+		player.spend_attribute_point("vitality")
+		player.spend_attribute_point("defence")
 	if geared:
 		var stock: Dictionary = ItemGeneratorScript.generate_shop_stock(level)
 		for subtype: String in ["espada", "peitoral"]:
@@ -253,6 +257,7 @@ func _make_player(level: int, geared: bool) -> GladiatorData:
 				player.equip_item(list[0])
 	player.level = level
 	player.health = player.max_health
+	player.armour = player.max_armour
 	return player
 
 ## Jogador "equipado": os 6 slots com o melhor item do tipo disponível para o
@@ -280,6 +285,7 @@ func _make_player_equipped(level: int) -> GladiatorData:
 			player.equip_item(best)
 	player.level = level
 	player.health = player.max_health
+	player.armour = player.max_armour
 	return player
 
 ## Troca de golpes até alguém cair (vida cheia nos dois lados). Vitória = o

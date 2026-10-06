@@ -240,7 +240,11 @@ func _make_row(item: Dictionary) -> PanelContainer:
 	var kind_hint := _kind_text(item)
 	info.add_child(_make_label("%s%s" % [bonuses, ("  •  %s" % kind_hint) if kind_hint != "" else ""], 13, GREEN))
 	var slot_title := str(SLOT_TITLES.get(str(item.get("slot", "weapon")), "ITEM"))
-	info.add_child(_make_label("Lugar: %s  •  %d ouro" % [slot_title, int(item.get("price", 0))], 12, DIM))
+	var buy_price := GameState.item_price(item)
+	var price_label := "Lugar: %s  •  %d ouro" % [slot_title, buy_price]
+	if buy_price < int(item.get("price", 0)):
+		price_label += "  (pechincha)"
+	info.add_child(_make_label(price_label, 12, DIM))
 	_add_equip_comparison(info, item)
 	var action := CenterContainer.new()
 	var button := Button.new()
@@ -259,7 +263,7 @@ func _make_row(item: Dictionary) -> PanelContainer:
 		button.pressed.connect(_on_mutation)
 		_style_button(button, Color("70b9e8"))
 	else:
-		var price := int(item.get("price", 0))
+		var price := GameState.item_price(item)
 		button.text = "COMPRAR"
 		button.disabled = GameState.player.gold < price
 		button.pressed.connect(GameState.purchase_item.bind(item))
@@ -271,14 +275,22 @@ func _make_row(item: Dictionary) -> PanelContainer:
 
 func _bonus_text(item: Dictionary) -> String:
 	var parts: Array[String] = []
+	if int(item.get("strength_bonus", 0)) > 0:
+		parts.append("STR +%d" % int(item.get("strength_bonus", 0)))
 	if int(item.get("attack_bonus", 0)) > 0:
-		parts.append("ATQ +%d" % int(item.get("attack_bonus", 0)))
-	if int(item.get("defense_bonus", 0)) > 0:
-		parts.append("DEF +%d" % int(item.get("defense_bonus", 0)))
+		parts.append("ATT +%d" % int(item.get("attack_bonus", 0)))
+	if int(item.get("defence_bonus", 0)) > 0:
+		parts.append("DEF +%d" % int(item.get("defence_bonus", 0)))
+	if int(item.get("agility_bonus", 0)) > 0:
+		parts.append("AGI +%d" % int(item.get("agility_bonus", 0)))
+	if int(item.get("vitality_bonus", 0)) > 0:
+		parts.append("VIT +%d" % int(item.get("vitality_bonus", 0)))
+	if int(item.get("charisma_bonus", 0)) > 0:
+		parts.append("CAR +%d" % int(item.get("charisma_bonus", 0)))
 	if int(item.get("luck_bonus", 0)) > 0:
-		parts.append("SORTE +%d" % int(item.get("luck_bonus", 0)))
-	if int(item.get("health_bonus", 0)) > 0:
-		parts.append("VIDA +%d" % int(item.get("health_bonus", 0)))
+		parts.append("SOR +%d" % int(item.get("luck_bonus", 0)))
+	if int(item.get("armour", 0)) > 0:
+		parts.append("ARM +%d" % int(item.get("armour", 0)))
 	return "  ".join(parts) if not parts.is_empty() else "sem bônus"
 
 ## Mostra a diferença entre o que está equipado no slot e o item da loja em UMA
@@ -295,7 +307,9 @@ func _add_equip_comparison(info: VBoxContainer, item: Dictionary) -> void:
 	if equipped_item.is_empty():
 		return
 	var stats := [
-		["ATQ", "attack_bonus"], ["DEF", "defense_bonus"], ["SORTE", "luck_bonus"], ["VIDA", "health_bonus"],
+		["STR", "strength_bonus"], ["ATT", "attack_bonus"], ["DEF", "defence_bonus"],
+		["AGI", "agility_bonus"], ["VIT", "vitality_bonus"], ["CAR", "charisma_bonus"],
+		["SOR", "luck_bonus"], ["ARM", "armour"],
 	]
 	var parts: Array[String] = []
 	for stat: Array in stats:

@@ -25,14 +25,15 @@ func _run_test() -> void:
 		_finish()
 		return
 	creation._name_field.text = "Tester"
-	# A criação só liberta o botão com TODOS os pontos distribuídos (hoje 20).
-	creation.allocate_points("attack", 12)
-	creation.allocate_points("health", EconomySystemScript.creation_points() - 12)
+	# A criação só liberta o botão com TODOS os pontos distribuídos (hoje 20),
+	# agora entre os 7 atributos.
+	creation.allocate_points("strength", 12)
+	creation.allocate_points("vitality", EconomySystemScript.creation_points() - 12)
 	await get_tree().process_frame
 	_check(not creation._confirm_button.disabled, "confirmar liberado")
 	creation._on_confirm_pressed()
 	await get_tree().create_timer(0.4).timeout
-	_check(GameState.player != null and GameState.player.base_attack == 20 and GameState.player.gold == 80, "criação neutra aplicada (80 ouro)")
+	_check(GameState.player != null and GameState.player.base_strength == 20 and GameState.player.gold == 80, "criação neutra aplicada (80 ouro)")
 	# 2) Loja inicial
 	_check(_find_by_method(app, "_on_mutation") != null, "loja inicial abre após a criação")
 	var buy_button = _find_button(app, "COMPRAR")
@@ -64,29 +65,40 @@ func _run_test() -> void:
 	if arena == null:
 		_finish()
 		return
-	_check(_find_button(app, "Avançar") != null, "ações de movimento presentes")
+	_check(_find_button(app, "AVANÇAR") != null, "ações de movimento presentes")
 	_check(int(arena.distance) == 3, "começa a distância 3")
 	_check(arena.distance_track != null and arena.distance_track.get_child_count() == 9, "trilha visual da arena com muralhas (9 células)")
-	var attack_btn = _find_button(app, "Atacar")
-	_check(attack_btn != null and attack_btn.disabled, "Atacar desabilitado fora de alcance (melee a 3 passos)")
+	# A arena mostra DUAS barras com números por lutador (vida e armadura).
+	_check(_find_label_contains(app, "VIDA") != null and _find_label_contains(app, "ARM") != null, "arena mostra as barras de VIDA e ARMADURA")
+	var attack_btn = _find_button(app, "GOLPE")
+	_check(attack_btn != null and attack_btn.disabled, "GOLPE desabilitado fora de alcance (melee a 3 passos)")
+	_check(_find_button_contains(app, "TAUNT:") != null, "ação TAUNT presente com a porcentagem na tela")
 	var round_before: int = int(arena.round_number)
-	arena.player_action("attack")
+	arena.player_action("golpe")
 	await get_tree().create_timer(0.8).timeout
 	_check(int(arena.round_number) == round_before + 1, "turno do inimigo executou exatamente uma vez")
-	# 6) Vitória com nível pendente
+	# 6) Vitória com pontos de nível pendentes
 	GameState.player.health = GameState.player.max_health
+	GameState.player.armour = GameState.player.max_armour
 	GameState.player.experience = GameState.player.required_experience() - 5
 	arena.distance = 1
+	arena.player_pos = 1
+	arena.enemy_pos = 2
 	GameState.current_enemy.health = 1
+	# Zera esquiva/auto-defesa do inimigo para a ação de abate ser determinística.
+	GameState.current_enemy.base_agility = 0
+	GameState.current_enemy.base_defence = 0
+	GameState.current_enemy.recompute_derived()
 	# A sequência de vitórias multiplica o OURO, não o XP. Era o XP inflado pela
 	# sequência (até +180%) que fazia o personagem subir de nível a cada luta.
 	GameState.win_streak = 9
 	var level_before_kill: int = GameState.player.level
 	var gold_before_kill: int = GameState.player.gold
+	var points_before_kill: int = GameState.player.pending_points
 	var enemy_multiplier := float(GameState.current_enemy.reward_multiplier)
 	var tier_multiplier := EconomySystemScript.tier_experience_multiplier(int(GameState.current_enemy.enemy_tier))
 	var base_rewards: Dictionary = EconomySystemScript.fight_rewards(level_before_kill)
-	arena.player_action("attack")
+	arena.player_action("golpe")
 	await get_tree().create_timer(0.6).timeout
 	var result = _find_by_method(app, "set_result")
 	_check(result != null, "resultado aparece")
@@ -99,8 +111,11 @@ func _run_test() -> void:
 	_check(int(fought.experience) == expected_xp, "XP da vitória não é inflado pela sequência de vitórias (medido %d, esperado %d)" % [int(fought.experience), expected_xp])
 	_check(int(fought.gold) == expected_gold and int(fought.gold) > int(base_rewards.gold), "a sequência de vitórias aumenta o ouro da vitória (medido %d)" % int(fought.gold))
 	_check(GameState.player.gold == gold_before_kill + int(fought.gold), "o ouro do resumo bate com o ouro do personagem")
-	_press_button(app, "Força")
-	await get_tree().create_timer(0.3).timeout
+	# Subir de nível dá pontos de atributo (4 por nível) — distribuídos aqui.
+	_check(GameState.player.level > level_before_kill and GameState.player.pending_points > points_before_kill, "subir de nível gera pontos de atributo pendentes")
+	while GameState.player.pending_points > 0:
+		GameState.spend_attribute_point("strength")
+	await get_tree().process_frame
 	_press_button(app, "SEGUIR")
 	await get_tree().create_timer(0.4).timeout
 	_check(_find_by_method(app, "start_new_fight") != null and GameState.current_enemy != null, "seguir inicia uma nova luta (inimigo gerado)")

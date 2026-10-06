@@ -106,6 +106,8 @@ func _on_result_action(action: String) -> void:
 	match action:
 		"shop":
 			show_shop()
+		"character":
+			show_character()
 		"rest":
 			GameState.rest()
 			show_arena()

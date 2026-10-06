@@ -50,7 +50,7 @@ func _build_interface() -> void:
 	var status := ""
 	if GameState.player != null:
 		who = GameState.player.display_name
-		status = "Nível %d  •  %d XP  •  VIDA %d/%d  •  %d ouro" % [GameState.player.level, GameState.player.experience, GameState.player.health, GameState.player.max_health, GameState.player.gold]
+		status = "Nível %d  •  %d XP  •  VIDA %d/%d  •  ARMADURA %d/%d  •  %d ouro" % [GameState.player.level, GameState.player.experience, GameState.player.health, GameState.player.max_health, GameState.player.armour, GameState.player.max_armour, GameState.player.gold]
 	root.add_child(_make_label("CIDADE", 34, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
 	root.add_child(_make_label(who, 22, INK, HORIZONTAL_ALIGNMENT_CENTER))
 	root.add_child(_make_label(status, 15, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
@@ -91,6 +91,7 @@ func _open_rest_dialog() -> void:
 		return
 	var p = GameState.player
 	var missing := maxi(0, p.max_health - p.health)
+	var missing_armour := maxi(0, p.max_armour - p.armour)
 	var full_cost: int = GameState.full_rest_cost()
 	var overlay := Control.new()
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -115,11 +116,11 @@ func _open_rest_dialog() -> void:
 	root.add_theme_constant_override("separation", 10)
 	panel.add_child(root)
 	root.add_child(_make_label("DESCANSAR", 26, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
-	if missing == 0:
-		root.add_child(_make_label("Sua vida está cheia — nada a recuperar.", 16, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+	if missing == 0 and missing_armour == 0:
+		root.add_child(_make_label("Sua vida e armadura estão cheias — nada a recuperar.", 16, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
 		_add_dialog_button(root, "FECHAR", _close_rest_dialog)
 		return
-	root.add_child(_make_label("VIDA  %d / %d   (faltam %d)" % [p.health, p.max_health, missing], 16, INK, HORIZONTAL_ALIGNMENT_CENTER))
+	root.add_child(_make_label("VIDA %d/%d   •   ARMADURA %d/%d   (faltam %d no total)" % [p.health, p.max_health, p.armour, p.max_armour, missing + missing_armour], 15, INK, HORIZONTAL_ALIGNMENT_CENTER))
 	root.add_child(_make_label("Descanso completo custa %d ouro. Você tem %d." % [full_cost, p.gold], 15, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
 	if p.gold < full_cost:
 		root.add_child(_make_label("Sem ouro suficiente: o descanso recupera apenas o que o ouro permitir (não garante vida cheia).", 13, Color("d9a45b"), HORIZONTAL_ALIGNMENT_CENTER))

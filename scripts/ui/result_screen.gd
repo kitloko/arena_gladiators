@@ -64,31 +64,7 @@ func _render() -> void:
 	if _result == null:
 		_title.text = "SEM RESULTADO"
 		return
-	var pending := 0
-	if GameState.player != null:
-		pending = GameState.player.pending_level_ups
-	if pending > 0:
-		_render_level_up(pending)
-	else:
-		_render_summary()
-
-func _render_level_up(pending: int) -> void:
-	_title.text = "NÍVEL %d!" % GameState.player.level
-	_title.add_theme_color_override("font_color", GOLD)
-	_body.add_child(_make_label("Escolha como %s treina (%d nível(nis) pendente(s))." % [GameState.player.display_name, pending], 15, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
-	for option: Dictionary in EconomySystemScript.level_up_options():
-		var button := Button.new()
-		button.text = "%s\n%s" % [str(option.get("label", "")), str(option.get("description", ""))]
-		button.custom_minimum_size = Vector2(0, 62)
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.add_theme_font_size_override("font_size", 16)
-		button.pressed.connect(GameState.choose_level_up.bind(str(option.get("id", ""))))
-		button.pressed.connect(_on_level_up_chosen)
-		_style_button(button, ABILITY)
-		_body.add_child(button)
-
-func _on_level_up_chosen() -> void:
-	_render.call_deferred()
+	_render_summary()
 
 func _render_summary() -> void:
 	_loot_card_index = 0
@@ -145,6 +121,11 @@ func _render_summary() -> void:
 		for entry: Dictionary in _result.loot:
 			_body.add_child(_make_item_card(entry, _loot_card_index))
 			_loot_card_index += 1
+	# Subir de nível agora dá PONTOS de atributo (4 por nível), distribuídos na
+	# tela de Personagem — em vez do menu fixo de 4 pacotes que existia antes.
+	if GameState.player != null and GameState.player.pending_points > 0:
+		_body.add_child(_make_label("NÍVEL %d — você tem %d ponto(s) de atributo para distribuir." % [GameState.player.level, GameState.player.pending_points], 15, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+		_add_action_button("DISTRIBUIR PONTOS", ABILITY, "character")
 	if tournament and victory and bool(_result.campaign_cleared):
 		_add_action_button("CONCLUIR TORNEIO", GOLD, "end_victory")
 	elif tournament and victory:
@@ -298,14 +279,22 @@ func _icon_rect(item: Dictionary, size: int) -> TextureRect:
 
 func _bonus_text(item: Dictionary) -> String:
 	var parts: Array[String] = []
+	if int(item.get("strength_bonus", 0)) > 0:
+		parts.append("STR+%d" % int(item.get("strength_bonus", 0)))
 	if int(item.get("attack_bonus", 0)) > 0:
-		parts.append("ATQ+%d" % int(item.get("attack_bonus", 0)))
-	if int(item.get("defense_bonus", 0)) > 0:
-		parts.append("DEF+%d" % int(item.get("defense_bonus", 0)))
+		parts.append("ATT+%d" % int(item.get("attack_bonus", 0)))
+	if int(item.get("defence_bonus", 0)) > 0:
+		parts.append("DEF+%d" % int(item.get("defence_bonus", 0)))
+	if int(item.get("agility_bonus", 0)) > 0:
+		parts.append("AGI+%d" % int(item.get("agility_bonus", 0)))
+	if int(item.get("vitality_bonus", 0)) > 0:
+		parts.append("VIT+%d" % int(item.get("vitality_bonus", 0)))
+	if int(item.get("charisma_bonus", 0)) > 0:
+		parts.append("CAR+%d" % int(item.get("charisma_bonus", 0)))
 	if int(item.get("luck_bonus", 0)) > 0:
-		parts.append("SORTE+%d" % int(item.get("luck_bonus", 0)))
-	if int(item.get("health_bonus", 0)) > 0:
-		parts.append("VIDA+%d" % int(item.get("health_bonus", 0)))
+		parts.append("SOR+%d" % int(item.get("luck_bonus", 0)))
+	if int(item.get("armour", 0)) > 0:
+		parts.append("ARM+%d" % int(item.get("armour", 0)))
 	if parts.is_empty():
 		return "sem bônus"
 	return "  ".join(parts)

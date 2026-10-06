@@ -2,7 +2,53 @@ class_name CombatResolver
 extends RefCounted
 
 const GladiatorDataScript := preload("res://scripts/models/gladiator_data.gd")
+
+## DEFESA FIRME: reduz o dano recebido no turno seguinte. Cada ponto vale 5% de
+## redução (o valor 6 = 30% de redução), com teto de 60%.
 const DEFEND_GUARD_BONUS := 6
+const GUARD_REDUCTION_PER_POINT := 0.05
+const GUARD_REDUCTION_CAP := 0.6
+
+## Precisão: cada ponto de ATT soma 1% de chance de acertar (base vem da ação).
+const ACC_PER_ATT := 0.010
+## Esquiva: cada ponto de AGI soma 1% de chance de anular o golpe (teto 45%).
+const DODGE_PER_AGI := 0.010
+const DODGE_CAP := 0.45
+## Auto-defesa: cada ponto de DEF soma 1% de chance de aparar (teto 50%).
+const BLOCK_PER_DEF := 0.010
+const BLOCK_CAP := 0.50
+## Fração do golpe aparado quando a auto-defesa dispara ("aparou X, entrou Y").
+const BLOCK_FRACTION := 0.5
+## Mitigação direta por DEF já usada na curva de dano calibrada.
+const DEF_MITIGATION := 0.55
+const CRIT_MULTIPLIER := 1.55
+## Crítico: base + SORTE (a antiga mecânica de luck, mantida e renomeada).
+const CRIT_BASE := 0.06
+const CRIT_PER_LUCK := 1.0 / 240.0
+
+## DORMIR: cura uma fração da vida máxima e deixa vulnerável no turno seguinte
+## (sem esquiva e com bônus de precisão para o inimigo).
+const SLEEP_HEAL_FRACTION := 0.25
+const SLEEP_VULNERABLE_ACCURACY := 0.30
+
+## Taunt: chance base e pesos (a maioria empurra o alvo um passo para frente).
+const TAUNT_BASE := 0.40
+const TAUNT_CHA_WEIGHT := 0.02
+const TAUNT_STR_WEIGHT := 0.01
+const TAUNT_LUCK_WEIGHT := 0.005
+const TAUNT_DEF_PENALTY := 0.012
+const TAUNT_LUCK_RESIST := 0.015
+const TAUNT_CHANCE_MIN := 0.05
+const TAUNT_CHANCE_MAX := 0.95
+## Resistência ao empurrão (SORTE): cada ponto = 2% (teto 60%).
+const TAUNT_PUSH_RESIST_PER_LUCK := 0.02
+const TAUNT_PUSH_RESIST_CAP := 0.6
+## Tabela de efeitos do Taunt por peso (advance = maioria).
+const TAUNT_EFFECTS := [
+	{"id": "advance", "weight": 55, "label": "avança forçado"},
+	{"id": "reckless", "weight": 25, "label": "ataca com precisão baixa"},
+	{"id": "stumble", "weight": 20, "label": "tropeça e perde o turno"},
+]
 
 ## Distância em "passos" entre os lutadores ao longo da arena (1–6, muralhas).
 const ARENA_MIN_RANGE := 1
@@ -11,6 +57,36 @@ const ARENA_START_RANGE := 3
 const ENEMY_REACH := 1
 ## Distância mínima em que um inimigo ranged tenta se manter.
 const ENEMY_RANGED_RETREAT := 2
+
+# --- Ações nomeadas por tipo de arma ---------------------------------------
+
+## Corpo a corpo. `advance` = a INVESTIDA dá um passo antes de atacar.
+static func melee_actions() -> Array[Dictionary]:
+	return [
+		{"id": "golpe", "label": "GOLPE", "multiplier": 1.0, "accuracy": 1.0, "penalty_scale": 1.0, "advance": false},
+		{"id": "golpe_forte", "label": "GOLPE FORTE", "multiplier": 1.6, "accuracy": 0.62, "penalty_scale": 1.0, "advance": false},
+		{"id": "investida", "label": "INVESTIDA", "multiplier": 1.15, "accuracy": 0.90, "penalty_scale": 1.0, "advance": true},
+	]
+
+## À distância. TIRO CERTEIRO tem precisão alta (sofre menos com a distância) e
+## dano menor; BOMBARDEIO bate mais forte mas acerta menos.
+static func ranged_actions() -> Array[Dictionary]:
+	return [
+		{"id": "tiro", "label": "TIRO", "multiplier": 1.0, "accuracy": 1.0, "penalty_scale": 1.0, "advance": false},
+		{"id": "tiro_certeiro", "label": "TIRO CERTEIRO", "multiplier": 0.8, "accuracy": 1.0, "penalty_scale": 0.35, "advance": false},
+		{"id": "bombardeio", "label": "BOMBARDEIO", "multiplier": 1.7, "accuracy": 0.60, "penalty_scale": 1.35, "advance": false},
+	]
+
+static func attack_actions_for(weapon: Dictionary) -> Array[Dictionary]:
+	if weapon_kind(weapon) == "ranged":
+		return ranged_actions()
+	return melee_actions()
+
+static func find_action(actions: Array, action_id: String) -> Dictionary:
+	for action: Dictionary in actions:
+		if str(action.get("id", "")) == action_id:
+			return action
+	return {}
 
 ## Gera um inimigo procedural com nível, atributos, tier, tipo de ataque
 ## (melee reach 1–2 ou ranged) e um conjunto de equipamento exibível baseado no
@@ -45,10 +121,13 @@ static func generate_enemy(player_level: int, items: Array = []) -> Dictionary:
 				equipped[slot] = str(item.get("id", ""))
 	# --- atributos na faixa calibrada de dificuldade --------------------------
 	# Escala calibrada por tests/run_balance_test.gd: o inimigo cresce, mas mais devagar
-	# que a escolha de treino do jogador (+4 de ataque ou +14 de vida por nível).
-	var hp := maxi(20, 24 + level * 7 + tier * 8 + randi_range(-5, 6))
-	var atk := maxi(4, 6 + int(round(float(level) * 1.6)) + tier * 2 + randi_range(-2, 2))
-	var defense := maxi(1, 2 + level + tier + randi_range(0, 2))
+	# que os pontos de atributo do jogador (4 por nível).
+	var hp := maxi(20, 25 + level * 7 + tier * 8 + randi_range(-5, 6))
+	var vit := maxi(2, roundi((float(hp) - float(GladiatorDataScript.HEALTH_BASE)) / float(GladiatorDataScript.HEALTH_PER_VIT)))
+	var strg := maxi(4, 7 + int(round(float(level) * 1.75)) + tier * 2 + randi_range(-2, 2))
+	var defense := maxi(1, 2 + int(round(float(level) * 1.05)) + tier * 2 + randi_range(0, 2))
+	var attack := maxi(4, 5 + int(round(float(level) * 0.5)) + tier)
+	var agility := maxi(1, 2 + tier + randi_range(0, 2))
 	var luck := maxi(1, 3 + randi_range(0, 2 + tier * 2))
 	var mult := 1.0 + float(tier - 1) * 0.7 + randf() * 0.15
 	var weapon_label := "machado velho"
@@ -61,13 +140,16 @@ static func generate_enemy(player_level: int, items: Array = []) -> Dictionary:
 	var pick: Array = name_pool[randi() % name_pool.size()]
 	name = "%s, %s" % [str(pick[0]), str(pick[1])]
 	return {
+		"attrs_version": GladiatorDataScript.ATTRS_VERSION,
 		"id": "generated_%d" % (randi() % 100000),
 		"display_name": name,
 		"level": level,
-		"base_max_health": hp,
-		"max_health": hp,
-		"base_attack": atk,
-		"base_defense": defense,
+		"base_vitality": vit,
+		"base_strength": strg,
+		"base_defence": defense,
+		"base_attack": attack,
+		"base_agility": agility,
+		"base_charisma": luck,
 		"base_luck": luck,
 		"equipped": equipped,
 		"enemy_kind": kind,
@@ -158,32 +240,143 @@ static func _find_item_by_id(items: Array, item_id: String) -> Dictionary:
 			return item
 	return {}
 
-## Regras puras de combate: sem interface, cenas ou acesso ao estado global.
-## Isto permite testar e ajustar o balanceamento isoladamente.
+# --- Fórmulas de combate ---------------------------------------------------
+
+## Chance de acertar (antes da esquiva): precisão da ação + ATT do atacante.
+static func accuracy_for(attacker, base_accuracy: float) -> float:
+	if attacker == null:
+		return clampf(base_accuracy, 0.0, 1.0)
+	return clampf(base_accuracy + float(attacker.attack) * ACC_PER_ATT, 0.0, 1.0)
+
+## Chance de ESQUIVA do alvo (AGI).
+static func dodge_chance(defender) -> float:
+	if defender == null:
+		return 0.0
+	return clampf(float(defender.agility) * DODGE_PER_AGI, 0.0, DODGE_CAP)
+
+## Chance de AUTO-DEFESA do alvo (DEF): aparta parte do golpe.
+static func block_chance(defender) -> float:
+	if defender == null:
+		return 0.0
+	return clampf(float(defender.defence) * BLOCK_PER_DEF, 0.0, BLOCK_CAP)
+
+## Chance de ACERTO CRÍTICO do atacante (base + SORTE).
+static func critical_chance(attacker) -> float:
+	if attacker == null:
+		return CRIT_BASE
+	return clampf(CRIT_BASE + float(attacker.luck) * CRIT_PER_LUCK, 0.0, 1.0)
+
+## Resolve UM ataque com o feedback pedido, campo por campo:
+##  {hit, missed, dodged, blocked, blocked_amount, damage, entered,
+##   armour_damage, health_damage, critical, out_of_range}
+## Ordem: (1) precisão pelo ATT; (2) esquiva pela AGI; (3) dano por STR vs DEF
+## (crítico pela SORTE); (4) auto-defesa pela DEF ("aparou X, entrou Y");
+## (5) DEFESA FIRME (guard_bonus) reduz o que entra; (6) a armadura absorve antes
+## da vida.
 static func resolve_attack(attacker, defender, multiplier: float = 1.0, accuracy: float = 1.0, guard_bonus: int = 0) -> Dictionary:
-	var hit: bool = randf() <= accuracy
-	if not hit:
-		return {"hit": false, "critical": false, "damage": 0}
-	var critical_chance: float = 0.06 + float(attacker.luck) / 240.0
-	var critical: bool = randf() < critical_chance
-	var raw_damage: float = float(attacker.attack) * multiplier + float(randi_range(-3, 4)) - (float(defender.defense + guard_bonus) * 0.55)
-	var damage: int = maxi(1, roundi(raw_damage * (1.55 if critical else 1.0)))
-	defender.receive_damage(damage)
-	return {"hit": true, "critical": critical, "damage": damage}
+	var result := {
+		"hit": false, "missed": false, "dodged": false, "blocked": false,
+		"blocked_amount": 0, "damage": 0, "entered": 0, "armour_damage": 0,
+		"health_damage": 0, "critical": false, "out_of_range": false,
+	}
+	if attacker == null or defender == null:
+		return result
+	# (1) Precisão: o ATT do atacante define se o golpe acerta de saída.
+	if randf() > accuracy_for(attacker, accuracy):
+		result["missed"] = true
+		return result
+	# (2) Esquiva: a AGI do alvo pode anular o golpe. Quem dormiu (vulnerável) não esquiva.
+	var vulnerable := bool(defender.vulnerable)
+	if not vulnerable and randf() < dodge_chance(defender):
+		result["dodged"] = true
+		return result
+	# (3) Dano: STR x multiplicador - mitigação direta da DEF; crítico pela SORTE.
+	var critical := randf() < critical_chance(attacker)
+	var raw_damage: float = float(attacker.strength) * multiplier + float(randi_range(-3, 4)) - (float(defender.defence) * DEF_MITIGATION)
+	if critical:
+		raw_damage *= CRIT_MULTIPLIER
+	var damage := maxi(1, roundi(raw_damage))
+	# (4) DEFESA FIRME do turno anterior reduz o dano que chega a entrar.
+	if guard_bonus > 0:
+		var reduction: float = minf(GUARD_REDUCTION_CAP, float(guard_bonus) * GUARD_REDUCTION_PER_POINT)
+		damage = maxi(1, roundi(float(damage) * (1.0 - reduction)))
+	# (5) Auto-defesa: a DEF do alvo apara parte do golpe ("aparou X, entrou Y").
+	var blocked_amount := 0
+	if randf() < block_chance(defender):
+		blocked_amount = maxi(0, roundi(float(damage) * BLOCK_FRACTION))
+	var entered := maxi(0, damage - blocked_amount)
+	# (6) A armadura absorve ANTES da vida.
+	var split: Dictionary = defender.absorb_damage(entered)
+	result["hit"] = true
+	result["critical"] = critical
+	result["blocked"] = blocked_amount > 0
+	result["blocked_amount"] = blocked_amount
+	result["damage"] = damage
+	result["entered"] = entered
+	result["armour_damage"] = int(split.get("armour", 0))
+	result["health_damage"] = int(split.get("health", 0))
+	return result
 
 static func enemy_for_level(level: int, template: Dictionary):
 	# Escala do torneio: mais suave que a Arena Livre porque o torneio soma
-	# `nível do jogador + índice do tier × 2 + rodada` (GameState). Com +12 de vida
-	# por nível, o chefe ficava matematicamente imbatível em todos os níveis.
+	# `nível do jogador + índice do tier × 2 + rodada` (GameState).
 	var safe_level: int = maxi(1, level)
-	return GladiatorDataScript.new({"id": str(template.get("id", "enemy")), "display_name": str(template.get("display_name", "Desafiante")), "level": safe_level, "max_health": int(template.get("base_health", 42)) + (safe_level - 1) * 8, "health": int(template.get("base_health", 42)) + (safe_level - 1) * 8, "attack": int(template.get("base_attack", 8)) + (safe_level - 1) * 2, "defense": int(template.get("base_defense", 3)) + (safe_level - 1), "luck": int(template.get("base_luck", 4)) + (safe_level - 1) * 2})
+	var hp: int = int(template.get("base_health", 42)) + (safe_level - 1) * 8
+	var vit: int = maxi(2, roundi((float(hp) - float(GladiatorDataScript.HEALTH_BASE)) / float(GladiatorDataScript.HEALTH_PER_VIT)))
+	return GladiatorDataScript.new({
+		"attrs_version": GladiatorDataScript.ATTRS_VERSION,
+		"id": str(template.get("id", "enemy")),
+		"display_name": str(template.get("display_name", "Desafiante")),
+		"level": safe_level,
+		"base_vitality": vit,
+		"base_strength": int(template.get("base_attack", 8)) + (safe_level - 1) * 2,
+		"base_defence": int(template.get("base_defense", 3)) + (safe_level - 1),
+		"base_attack": 8 + int(round(float(safe_level - 1) * 0.6)),
+		"base_agility": 4 + int(round(float(safe_level - 1) * 0.4)),
+		"base_charisma": int(template.get("base_luck", 4)) + (safe_level - 1) * 2,
+		"base_luck": int(template.get("base_luck", 4)) + (safe_level - 1) * 2,
+	})
 
 ## Decisão simples do inimigo: 22% de chance de golpe arriscado, senão ataque normal.
-## Centralizado aqui para a interface não conter regras de comportamento.
 static func choose_enemy_action() -> Dictionary:
 	if randf() < 0.22:
 		return {"kind": "brutal", "multiplier": 1.35, "accuracy": 0.82}
 	return {"kind": "normal", "multiplier": 1.0, "accuracy": 1.0}
+
+# --- Taunt ------------------------------------------------------------------
+
+## Chance de sucesso do Taunt: CHA do provocador contra CHA/DEF/SOR do alvo,
+## com peso do STR do provocador e um pequeno peso da SORTE do próprio.
+static func taunt_chance(attacker, defender) -> float:
+	if attacker == null or defender == null:
+		return 0.0
+	var chance := TAUNT_BASE
+	chance += (float(attacker.charisma) - float(defender.charisma)) * TAUNT_CHA_WEIGHT
+	chance += float(attacker.strength) * TAUNT_STR_WEIGHT
+	chance += float(attacker.luck) * TAUNT_LUCK_WEIGHT
+	chance -= float(defender.defence) * TAUNT_DEF_PENALTY
+	chance -= float(defender.luck) * TAUNT_LUCK_RESIST
+	return clampf(chance, TAUNT_CHANCE_MIN, TAUNT_CHANCE_MAX)
+
+## Resistência ao EMPURRÃO para frente (SORTE): quem tem mais SORTE resiste mais.
+static func taunt_push_resisted(defender) -> bool:
+	if defender == null:
+		return false
+	var resist := clampf(float(defender.luck) * TAUNT_PUSH_RESIST_PER_LUCK, 0.0, TAUNT_PUSH_RESIST_CAP)
+	return randf() < resist
+
+## Sorteia o efeito do Taunt (advance é o de maior peso = maioria).
+static func roll_taunt_effect() -> Dictionary:
+	var total := 0
+	for effect: Dictionary in TAUNT_EFFECTS:
+		total += int(effect.get("weight", 0))
+	var roll := randi_range(1, maxi(1, total))
+	var accumulated := 0
+	for effect: Dictionary in TAUNT_EFFECTS:
+		accumulated += int(effect.get("weight", 0))
+		if roll <= accumulated:
+			return effect
+	return TAUNT_EFFECTS[0]
 
 # --- Movimento e alcance -------------------------------------------------
 
@@ -206,17 +399,21 @@ static func move_toward(distance: int) -> int:
 static func move_away(distance: int) -> int:
 	return mini(ARENA_MAX_RANGE, distance + 1)
 
-## Precisão de projétil cai com a distância além do mínimo.
-static func ranged_accuracy(accuracy: float, distance: int) -> float:
-	var penalty := float(maxi(0, distance - ARENA_MIN_RANGE)) * 0.07
+## Precisão de projétil cai com a distância além do mínimo (escala ajustável
+## pelas ações: TIRO CERTEIRO sofre menos, BOMBARDEIO sofre mais).
+static func ranged_accuracy_scaled(accuracy: float, distance: int, penalty_scale: float) -> float:
+	var penalty := float(maxi(0, distance - ARENA_MIN_RANGE)) * 0.07 * penalty_scale
 	return clampf(accuracy - penalty, 0.0, 1.0)
+
+static func ranged_accuracy(accuracy: float, distance: int) -> float:
+	return ranged_accuracy_scaled(accuracy, distance, 1.0)
 
 ## Ataque que respeita alcance e distância. Melee fora do alcance não acerta;
 ## ranged aplica a penalidade de distância na precisão.
-static func resolve_positional_attack(attacker, defender, weapon: Dictionary, distance: int, multiplier: float = 1.0, accuracy: float = 1.0, guard_bonus: int = 0) -> Dictionary:
+static func resolve_positional_attack(attacker, defender, weapon: Dictionary, distance: int, multiplier: float = 1.0, accuracy: float = 1.0, guard_bonus: int = 0, penalty_scale: float = 1.0) -> Dictionary:
 	if not can_attack_at(distance, weapon):
-		return {"hit": false, "critical": false, "damage": 0, "out_of_range": true}
+		return {"hit": false, "missed": false, "dodged": false, "blocked": false, "blocked_amount": 0, "damage": 0, "entered": 0, "armour_damage": 0, "health_damage": 0, "critical": false, "out_of_range": true}
 	var effective_accuracy := accuracy
 	if weapon_kind(weapon) == "ranged":
-		effective_accuracy = ranged_accuracy(accuracy, distance)
+		effective_accuracy = ranged_accuracy_scaled(accuracy, distance, penalty_scale)
 	return resolve_attack(attacker, defender, multiplier, effective_accuracy, guard_bonus)
