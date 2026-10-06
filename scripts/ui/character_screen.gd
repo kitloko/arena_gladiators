@@ -53,14 +53,17 @@ func _build_interface() -> void:
 	root.add_child(_make_label("PERSONAGEM", 30, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
 	_attributes = RichTextLabel.new()
 	_attributes.bbcode_enabled = true
-	_attributes.custom_minimum_size = Vector2(0, 56)
+	# 3 linhas (nome/nível/ouro, atributos, XP): 56px cortava a linha de XP e deixava
+	# o RichTextLabel com barra de rolagem interna. 80px fecha as três.
+	_attributes.custom_minimum_size = Vector2(0, 80)
 	_attributes.add_theme_font_size_override("normal_font_size", 16)
 	_attributes.add_theme_color_override("default_color", MUTED)
 	_attributes.add_theme_stylebox_override("normal", _panel_style(PANEL_DARK, 10, 14))
 	root.add_child(_attributes)
 	root.add_child(_make_label("EQUIPAMENTO", 16, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
 	var scroll_grid := ScrollContainer.new()
-	scroll_grid.custom_minimum_size = Vector2(0, 220)
+	# 240px: as 2 fileiras de slots (≈232px) cabem sem barra de rolagem.
+	scroll_grid.custom_minimum_size = Vector2(0, 240)
 	_equipment_grid = GridContainer.new()
 	_equipment_grid.columns = 3
 	_equipment_grid.add_theme_constant_override("h_separation", 12)
@@ -70,7 +73,7 @@ func _build_interface() -> void:
 	root.add_child(scroll_grid)
 	root.add_child(_make_label("BOLSA (itens possuídos — clique em EQUIPAR para trocar)", 16, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
 	var scroll_bag := ScrollContainer.new()
-	scroll_bag.custom_minimum_size = Vector2(0, 150)
+	scroll_bag.custom_minimum_size = Vector2(0, 130)
 	scroll_bag.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_bag = VBoxContainer.new()
 	_bag.add_theme_constant_override("separation", 8)
@@ -94,8 +97,13 @@ func _refresh() -> void:
 	if GameState.player == null:
 		return
 	var p = GameState.player
-	_attributes.text = "[color=#f5c451]%s[/color]  •  Nível %d  •  %d ouro\n[color=#79cf7b]VIDA %d/%d[/color]   [color=#d9a45b]ATQ %d[/color]   [color=#70b9e8]DEF %d[/color]   [color=#e06bb5]SORTE %d[/color]" % [
-		p.display_name, p.level, p.gold, p.health, p.max_health, p.attack, p.defense, p.luck,
+	# A tela mostrava ouro e atributos, mas não o quanto falta para o próximo
+	# nível nem os treinos pendentes: o jogador não sabia o que estava perseguindo.
+	var xp_line := "XP %d / %d para o nível %d" % [p.experience, p.required_experience(), p.level + 1]
+	if p.pending_level_ups > 0:
+		xp_line += "   •   %d escolha(s) de treino esperando" % p.pending_level_ups
+	_attributes.text = "[color=#f5c451]%s[/color]  •  Nível %d  •  %d ouro\n[color=#79cf7b]VIDA %d/%d[/color]   [color=#d9a45b]ATQ %d[/color]   [color=#70b9e8]DEF %d[/color]   [color=#e06bb5]SORTE %d[/color]\n[color=#cdbfd5]%s[/color]" % [
+		p.display_name, p.level, p.gold, p.health, p.max_health, p.attack, p.defense, p.luck, xp_line,
 	]
 	for child in _equipment_grid.get_children():
 		child.queue_free()

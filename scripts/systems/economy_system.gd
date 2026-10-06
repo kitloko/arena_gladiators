@@ -50,9 +50,9 @@ static func streak_bonus_percent(win_streak: int) -> int:
 ## (base_* + amount, com cura opcional).
 static func level_up_options() -> Array[Dictionary]:
 	return [
-		{"id": "vigor", "label": "Vigor", "description": "+12 de vida máxima e cura completa", "stat": "base_max_health", "amount": 12, "heal": true},
-		{"id": "power", "label": "Força", "description": "+3 de ataque", "stat": "base_attack", "amount": 3, "heal": false},
-		{"id": "guard", "label": "Proteção", "description": "+3 de defesa", "stat": "base_defense", "amount": 3, "heal": false},
+		{"id": "vigor", "label": "Vigor", "description": "+14 de vida máxima e cura completa", "stat": "base_max_health", "amount": 14, "heal": true},
+		{"id": "power", "label": "Força", "description": "+4 de ataque", "stat": "base_attack", "amount": 4, "heal": false},
+		{"id": "guard", "label": "Proteção", "description": "+4 de defesa", "stat": "base_defense", "amount": 4, "heal": false},
 		{"id": "luck", "label": "Sorte", "description": "+2 de sorte", "stat": "base_luck", "amount": 2, "heal": false},
 	]
 

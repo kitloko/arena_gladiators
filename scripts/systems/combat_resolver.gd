@@ -18,13 +18,16 @@ const ENEMY_RANGED_RETREAT := 2
 ## o equipamento aparece na inspeção (o comportamento usa enemy_kind/reach).
 ## Se `items` (pool de data/items.json) for vazio, o inimigo sai sem itens.
 static func generate_enemy(player_level: int, items: Array = []) -> Dictionary:
-	var roll := randf()
+	# Nos primeiros níveis o inimigo é sempre tier 1: um tier 3 no nível 1 saía com
+	# 106 de vida contra os ~58 do jogador recém-criado (derrota praticamente garantida).
 	var tier := 1
-	if roll < 0.15:
-		tier = 3
-	elif roll < 0.45:
-		tier = 2
-	var level := maxi(1, player_level + randi_range(-1, tier))
+	if player_level > 2:
+		var roll := randf()
+		if roll < 0.15:
+			tier = 3
+		elif roll < 0.45:
+			tier = 2
+	var level := maxi(1, player_level + randi_range(-1, 0) + (tier - 1))
 	var kind := "ranged" if randf() < 0.35 else "melee"
 	var reach := 1
 	if kind == "melee" and randf() < 0.35:
@@ -41,8 +44,10 @@ static func generate_enemy(player_level: int, items: Array = []) -> Dictionary:
 			if not item.is_empty():
 				equipped[slot] = str(item.get("id", ""))
 	# --- atributos na faixa calibrada de dificuldade --------------------------
-	var hp := maxi(20, 28 + level * 10 + tier * 10 + randi_range(-6, 8))
-	var atk := maxi(4, 6 + level * 2 + tier * 2 + randi_range(-2, 3))
+	# Escala calibrada por tests/run_balance_test.gd: o inimigo cresce, mas mais devagar
+	# que a escolha de treino do jogador (+4 de ataque ou +14 de vida por nível).
+	var hp := maxi(20, 24 + level * 7 + tier * 8 + randi_range(-5, 6))
+	var atk := maxi(4, 6 + int(round(float(level) * 1.6)) + tier * 2 + randi_range(-2, 2))
 	var defense := maxi(1, 2 + level + tier + randi_range(0, 2))
 	var luck := maxi(1, 3 + randi_range(0, 2 + tier * 2))
 	var mult := 1.0 + float(tier - 1) * 0.7 + randf() * 0.15
@@ -167,8 +172,11 @@ static func resolve_attack(attacker, defender, multiplier: float = 1.0, accuracy
 	return {"hit": true, "critical": critical, "damage": damage}
 
 static func enemy_for_level(level: int, template: Dictionary):
+	# Escala do torneio: mais suave que a Arena Livre porque o torneio soma
+	# `nível do jogador + índice do tier × 2 + rodada` (GameState). Com +12 de vida
+	# por nível, o chefe ficava matematicamente imbatível em todos os níveis.
 	var safe_level: int = maxi(1, level)
-	return GladiatorDataScript.new({"id": str(template.get("id", "enemy")), "display_name": str(template.get("display_name", "Desafiante")), "level": safe_level, "max_health": int(template.get("base_health", 42)) + (safe_level - 1) * 12, "health": int(template.get("base_health", 42)) + (safe_level - 1) * 12, "attack": int(template.get("base_attack", 8)) + (safe_level - 1) * 3, "defense": int(template.get("base_defense", 3)) + (safe_level - 1) * 2, "luck": int(template.get("base_luck", 4)) + (safe_level - 1) * 2})
+	return GladiatorDataScript.new({"id": str(template.get("id", "enemy")), "display_name": str(template.get("display_name", "Desafiante")), "level": safe_level, "max_health": int(template.get("base_health", 42)) + (safe_level - 1) * 8, "health": int(template.get("base_health", 42)) + (safe_level - 1) * 8, "attack": int(template.get("base_attack", 8)) + (safe_level - 1) * 2, "defense": int(template.get("base_defense", 3)) + (safe_level - 1), "luck": int(template.get("base_luck", 4)) + (safe_level - 1) * 2})
 
 ## Decisão simples do inimigo: 22% de chance de golpe arriscado, senão ataque normal.
 ## Centralizado aqui para a interface não conter regras de comportamento.

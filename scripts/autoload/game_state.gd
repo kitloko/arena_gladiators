@@ -390,9 +390,22 @@ func choose_level_up(option_id: String) -> bool:
 				return true
 	return false
 
+## Habilidade do arquétipo (Investida / Golpe Devastador / Estocada).
+##
+## Na prática devolve vazio, e isso é esperado: a criação do personagem é NEUTRA
+## de propósito (creation_screen.gd — "criação neutra (sem classe)") e nada no jogo
+## grava um archetype_id no jogador. A arena já sabe usar o dicionário quando ele
+## existir (botão de habilidade + CombatResolver), então falta só a escolha de
+## classe na criação — decisão de design, não bug de código.
 func player_skill() -> Dictionary:
 	if player == null:
 		return {}
+	var archetype_id := str(player.archetype_id)
+	if archetype_id == "":
+		return {}
+	for entry: Dictionary in ContentRepositoryScript.load_archetypes():
+		if str(entry.get("id", "")) == archetype_id:
+			return entry.get("skill", {})
 	return {}
 
 ## Item (dicionário de conteúdo) da arma equipada no momento.

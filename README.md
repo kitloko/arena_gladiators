@@ -2,17 +2,31 @@
 
 Protótipo 2D de combate por turnos inspirado no ritmo dos jogos de arena de gladiadores. Todo o cenário e a interface são montados por GDScript — a cena existe apenas como ponto de entrada.
 
-O plano de entrega está em [`docs/PLANO_MVP.md`](docs/PLANO_MVP.md) e as regras de organização em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
+O plano de entrega está em [`docs/PLANO_MVP.md`](docs/PLANO_MVP.md), as regras de organização em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md). O histórico de números do balanceamento fica em [`docs/BALANCEAMENTO.md`](docs/BALANCEAMENTO.md) e o plano de correções da versão 1.5 (com os critérios numéricos medidos) em [`docs/PLANO_CORRECOES.md`](docs/PLANO_CORRECOES.md).
+
+Feito e testado no **Godot 4.5** (`config/features` do `project.godot`). Versões 4.3/4.4 reescrevem os arquivos `.import` dos assets — se isso acontecer, `git checkout -- .` desfaz.
 
 ## Como executar sem abrir o editor
 
-Instale o Godot 4 e, no terminal aberto nesta pasta, execute diretamente:
+Instale o Godot 4.5 e, no terminal aberto nesta pasta, execute diretamente:
 
 ```powershell
 godot --path .
 ```
 
-Se o executável não estiver configurado no sistema, substitua `godot` pelo caminho do `Godot_v4.x-stable_win64.exe`.
+Se o executável não estiver configurado no sistema, substitua `godot` pelo caminho do `Godot_v4.5-stable_win64.exe`.
+
+## Testes
+
+Os dois testes rodam sem abrir janela (nenhum precisa de tela) e saem com código 1 se algo falhar:
+
+```powershell
+# regras: combate, itens, loja, progressão, save (deve dizer PASS)
+godot --headless --path . -s res://tests/run_systems_test.gd
+
+# balanceamento: curva de vitória por nível e torneios (deve dizer PASS)
+godot --headless --path . -s res://tests/run_balance_test.gd
+```
 
 Para uma verificação rápida da estrutura sem abrir a janela do jogo:
 
@@ -26,7 +40,7 @@ godot --headless --path . --quit
 - **Atacar**: dano consistente.
 - **Defender**: reduz o ataque inimigo daquela rodada.
 - **Golpe arriscado**: mais dano, porém pode falhar.
-- **Habilidade**: ação especial do arquétipo escolhido.
+- **Habilidade**: ação especial de arquétipo — **ainda não implementada**. A criação é neutra (sem classe), então nenhum personagem recebe arquétipo e o botão não aparece na arena; `data/archetypes.json` existe como conteúdo para quando a escolha de classe entrar.
 - **Avançar / Recuar**: mover na arena — uma ação por turno (ou você se move, ou ataca/defende).
 - **Alcance**: armas melee só acertam de perto; armas de longo alcance (ex.: arco curto) erram mais conforme a distância.
 

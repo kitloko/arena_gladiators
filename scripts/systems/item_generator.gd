@@ -64,7 +64,10 @@ static func generate_shop_stock(player_level: int, per_type: int = PER_TYPE) -> 
 	return stock
 
 static func _generate_type_items(subtype: Dictionary, player_level: int, count: int) -> Array[Dictionary]:
-	var nouns := (subtype.get("nouns", []) as Array).duplicate()
+	# `canonical` guarda a ordem do data/*.json (do substantivo mais simples ao mais
+	# forte). `nouns` é a cópia embaralhada: decide QUAIS nomes aparecem no estoque.
+	var canonical: Array = subtype.get("nouns", [])
+	var nouns := canonical.duplicate()
 	nouns.shuffle()
 	var items: Array[Dictionary] = []
 	for i in mini(count, nouns.size()):
@@ -84,6 +87,14 @@ static func _generate_type_items(subtype: Dictionary, player_level: int, count: 
 			guard += 1
 		items.append(candidate)
 	items.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a.get("price", 0)) < int(b.get("price", 0)))
+	# O nome tem que acompanhar o poder do item. QUAIS substantivos aparecem continua
+	# aleatório (o embaralhamento acima), mas a ORDEM entre eles volta a ser a canônica
+	# do tipo: sem isto o item mais barato do estoque saía como "Espada longa" e o mais
+	# caro como "Espada curta", contradizendo preço e bônus na mesma lista.
+	var chosen := nouns.slice(0, items.size())
+	chosen.sort_custom(func(a, b) -> bool: return canonical.find(str(a)) < canonical.find(str(b)))
+	for index in items.size():
+		items[index]["display_name"] = str(chosen[index])
 	return items
 
 ## Dois itens são "iguais" se têm a mesma raridade, nível, bônus e preço.
