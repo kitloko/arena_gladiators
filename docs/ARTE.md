@@ -208,10 +208,76 @@ Centred, isolated, full item visible, slight top-left light.
 ## 6. Entrega e prova
 
 1. Você manda a folha (ex.: `A1_heroi_espadachim.png`) com a grade declarada: `5 colunas x 1 linha, 256x256 por célula`.
-2. Eu rodo o cortador (`tools/slice_atlas.gd`): corta, detecta o alfa, ancora e grava `assets/gen/<id>.png` + o manifesto.
+2. Eu rodo o cortador (`tools/slice_sheet.gd`): corta, detecta o alfa, ancora e grava os PNGs + o manifesto.
 3. Rodo a QA e te mando o **print do jogo usando a sua arte**, com a tabela "célula → item" (prova de que nada entrou trocado).
 4. Se alguma célula vier torta/fora da grade, eu **aviso com o print da folha recortada** e você regera só aquela folha.
 
 **Ordem sugerida para começar (6 folhas):** `A1` + `A13`/`A14` (personagens) · `B1` + `B4` (cidade e arena) · `F1` + `F2` (painéis e botões). Com essas seis eu provo o pipeline inteiro ponta a ponta: corte → jogo → QA.
 
 **Enquanto elas não chegam, eu não fico parado:** gero placeholders por código com o mesmo contrato (mesmos nomes e mesma grade). Quando a sua folha entra, ela **substitui o placeholder** sem trocar uma linha do jogo.
+
+---
+
+## 7. Poses do lutador — a folha do dono entra no jogo (etapa 8)
+
+O jogo já **anima a luta por pose**: atacou → pose de ataque; aparou/esquivou → pose de defesa; levou dano → pose de levado; fim da ação → parado; e o derrotado fica **caído**. Hoje isso usa os PNGs `hero_*.png` / `enemy_*.png` que já existiam (`assets/sprites/`). **A sua folha tem PRECEDÊNCIA** sobre eles assim que os arquivos aparecem — sem trocar uma linha do jogo.
+
+### 7.1 O contrato da folha de personagem
+
+Uma folha por personagem, **5 colunas x 1 linha**, nesta ordem (é a ordem que o `--rename` espera):
+
+| Coluna | Pose | Nome semântico |
+| --- | --- | --- |
+| 1 | parado | `idle` |
+| 2 | atacando (arma na mão) | `ataque` |
+| 3 | defendendo | `defesa` |
+| 4 | levando o golpe | `levado` |
+| 5 | caído no chão | `caido` |
+
+Como no resto do contrato: **vista 3/4 virada para a DIREITA**, pés na mesma linha (baseline) nas poses 1–4, fundo chapado (magenta/preto), **sem texto**. O inimigo usa a MESMA folha espelhada (`flip_h`), então uma folha serve para os dois lados.
+
+### 7.2 O comando exato (por personagem)
+
+Salve a folha em `art_in/` (ex.: `art_in/heroi_espadachim.png`) e rode, **trocando só o `--in` e o `--out`** conforme o personagem:
+
+```bash
+# HERÓI (char_id "hero") -> assets/gen/hero/pose_<pose>.png
+GODOT_SILENCE_ROOT_WARNING=1 <godot> --headless --path . -s res://tools/slice_sheet.gd -- \
+  --in art_in/heroi_espadachim.png \
+  --out assets/gen/hero/pose \
+  --cols 5 \
+  --rename idle,ataque,defesa,levado,caido
+
+# Um INIMIGO específico (o char_id é o id dele: brutus, livia, maurus, vettius, imperator, grande_gladiador...)
+GODOT_SILENCE_ROOT_WARNING=1 <godot> --headless --path . -s res://tools/slice_sheet.gd -- \
+  --in art_in/brutamontes_5poses.png \
+  --out assets/gen/brutus/pose \
+  --cols 5 \
+  --rename idle,ataque,defesa,levado,caido
+```
+
+O `--cols 5` corta em 5 colunas iguais (caixa apertada ao pixel) e o `--rename` grava exatamente os 5 nomes que o jogo procura: saem `assets/gen/<char>/pose_idle.png`, `pose_ataque.png`, `pose_defesa.png`, `pose_levado.png` e `pose_caido.png`. Depois rode `--import` uma vez (o jogo precisa conhecer os PNGs).
+
+### 7.3 O manifesto de personagens (`assets/gen/characters.json`)
+
+O jogo lê este manifesto e resolve, por `char_id` + pose, o PNG a usar. Ele já vem no repositório com a entrada do herói apontando para os nomes que o comando acima produz:
+
+```json
+{
+  "version": 1,
+  "poses": ["idle", "ataque", "defesa", "levado", "caido"],
+  "characters": {
+    "hero": {
+      "idle":   "hero/pose_idle.png",
+      "ataque": "hero/pose_ataque.png",
+      "defesa": "hero/pose_defesa.png",
+      "levado": "hero/pose_levado.png",
+      "caido":  "hero/pose_caido.png"
+    }
+  }
+}
+```
+
+- As chaves de `characters` são o **`char_id`**: `hero` para o jogador e o **id do adversário** para o inimigo (`brutus`, `imperator`, ...). Enquanto não houver entrada, o inimigo cai no sprite atual `enemy_*`.
+- **Precedência + fallback:** o manifesto manda; se a entrada **ou** o PNG não existirem, a arena cai sozinha nos `hero_*`/`enemy_*` — o lutador nunca some. Basta o comando de §7.2; **não é preciso editar o JSON** (a entrada do herói já aponta para os nomes gerados).
+- É o mesmo padrão do `AssetCatalog`/`manifest.json` da arte gerada: o manifesto é a fonte da verdade e a ausência dele nunca quebra a tela (há teste para os dois caminhos).

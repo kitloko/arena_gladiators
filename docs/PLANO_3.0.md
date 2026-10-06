@@ -298,3 +298,55 @@ escondida, o fundo antigo aparece e nada quebra).
 como combinado); a plateia B9 foi gerada mas ainda não entrou como camada própria (hoje ela vem embutida em cada
 arena); e nas arenas a "plateia" é abstrata (arcos/silhuetas) — é o limite da arte por código, e é justamente o
 que as folhas suas vão substituir.
+
+---
+
+## 12. Resultado da etapa 8 — medido (06/10/2026)
+
+**A luta passou a ANIMAR por pose, o golpe tem efeito, a ação à distância tem projétil, e a sua folha de personagem
+tem porta de entrada própria (com precedência sobre a arte atual).** Nada de arte nova foi inventado: as poses usam
+os PNGs `hero_*.png` / `enemy_*.png` que já existiam (estavam sem uso).
+
+**1. Animação por pose (evento → sprite).** Um ponto único de troca (`_update_fighter_visuals`, usado pelos DOIS
+lutadores) resolve a textura via `FighterVisuals`:
+
+| Evento da luta | Pose | Fonte |
+| --- | --- | --- |
+| ataca (golpe/investida/tiro do herói ou do inimigo) | `attack` | `hero_attack.png` / `enemy_attack.png` |
+| defesa firme / dormir / exibir / taunt / esquiva / aparo | `defend` | `hero_defend.png` / `enemy_defend.png` |
+| levou dano de verdade | `hit` | `hero_hit.png` / `enemy_hit.png` |
+| fim da ação/turno | `idle` | `hero.png` / `enemy.png` |
+| **alguém caiu** (fim de luta) | `fallen` | a pose de levado **inclinada ~82° e escurecida** (sem arte nova) |
+
+A troca dura ~0,3s e volta ao repouso (tween, sem `await` na lógica da luta) — **o ritmo não muda**. No fim da luta
+o derrotado fica na pose caída e o cartaz `VOCÊ VENCEU/PERDEU` continua por cima (é overlay da arena).
+
+**2. Efeitos e projéteis 100% por código** (`scripts/ui/fight_effects.gd`, Line2D/Polygon2D + tween):
+
+- golpe corpo a corpo → **arco de corte** branco/dourado (~0,28s);
+- aparo → **anel de faísca** (~0,28s);
+- dano levado → **respingo** curto no sentido do golpe (~0,3s);
+- recuo/avanço → **puff de poeira** nos pés (~0,5s);
+- `tiro`/`tiro_certeiro`/`bombardeio` (arco/besta/arremesso) → **projétil voando** do atacante ao alvo, com rotação,
+  rastro leve e faísca de impacto; a duração cresce com a **faixa de distância** já usada pelo combate.
+
+Nada disso bloqueia a luta (dispara-e-esquece) — **o balanceamento não sentiu diferença** (§ abaixo).
+
+**3. Porta de entrada da sua folha** (`assets/gen/characters.json` + `FighterVisuals`): o manifesto mapeia
+`char_id` + pose semântica (`idle`/`ataque`/`defesa`/`levado`/`caido`) → PNG, com **precedência** sobre os
+`hero_*`/`enemy_*`. Se a entrada ou o PNG faltarem, cai no sprite atual (o lutador nunca some). O comando exato do
+cortador, por personagem, está em **`docs/ARTE.md` §7** (mesmo padrão do `AssetCatalog`).
+
+**Testes:** `run_systems_test` PASS (novos: pose por evento, esquema do manifesto, fallback sem manifesto,
+**precedência** do manifesto), `run_assets_test` PASS, `run_balance_test` PASS **sem nenhum critério afrouxado** e
+`run_flow_smoke` PASS. (O `flow_smoke` tinha um *flake* raro de ~10%: o golpe único do cenário de torneio podia ser
+esquivado por um inimigo com o traço Ágil / absorvido pela armadura; o cenário agora zera a armadura e marca o alvo
+como vulnerável — **nenhuma asserção foi alterada**.)
+
+**QA visual (jogo aberto):** prints do herói na pose de ATAQUE, do inimigo na pose de levado, do herói APARANDO (com
+faísca), do arco de corte, de um PROJÉTIL voando (luta com arco) e do derrotado caído.
+
+**O que ficou de fora (honesto):** os efeitos são geométricos (linhas/polígonos) — é o limite da arte por código; a
+sua folha D1/D2 (`ARTE.md` §3-D) substitui por arte pintada quando quiser, pelo mesmo contrato. Andar/celebrar
+seguem fora (como no §4.2: menor retorno agora). A ia de movimento já gera poeira, mas uma animação de caminhada
+de verdade precisa de mais quadros de pose.

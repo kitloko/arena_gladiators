@@ -19,6 +19,7 @@ const InjurySystemScript := preload("res://scripts/systems/injury_system.gd")
 const HaggleSystemScript := preload("res://scripts/systems/haggle_system.gd")
 const BettingSystemScript := preload("res://scripts/systems/betting_system.gd")
 const PotionSystemScript := preload("res://scripts/systems/potion_system.gd")
+const FighterVisualsScript := preload("res://scripts/systems/fighter_visuals.gd")
 const GameStateScript := preload("res://scripts/autoload/game_state.gd")
 
 var _failures: int = 0
@@ -95,6 +96,11 @@ func _initialize() -> void:
 	_test_tournament_blocks_city_and_notice()
 	_test_tournament_start_refuses_restart_and_abandon()
 	_test_tournament_item_only_from_final()
+	# --- ETAPA 8: animação por pose + manifesto de personagens do dono ---
+	_test_pose_for_event_maps_semantics()
+	_test_character_manifest_schema()
+	_test_pose_resolution_fallback_without_manifest()
+	_test_character_manifest_precedence()
 	if _failures == 0:
 		print("PASS: todos os testes de regras passaram.")
 		quit(0)
@@ -1611,5 +1617,101 @@ func _test_tournament_item_only_from_final() -> void:
 	_check(loot_final.size() == 1 and player.owns_item("gladius_magnus"), "o item (Gládio do Grande Gladiador) cai SÓ da rodada final (regra 3)")
 	_check(player.bag_items().size() == bag_before + 1, "exatamente 1 item de torneio na bolsa (%d)" % player.bag_items().size())
 	gs.free()
+
+# ===========================================================================
+# ETAPA 8 — animação por pose + efeitos/projéteis + manifesto do dono
+# ===========================================================================
+
+## A função que resolve a pose a partir do EVENTO devolve a pose semântica certa
+## para cada caso (ataque/defesa/levado/parado/caído) — pura, sem tempo real.
+func _test_pose_for_event_maps_semantics() -> void:
+	_check(FighterVisualsScript.pose_for_event("attack") == "ataque", "evento de ataque -> pose 'ataque'")
+	_check(FighterVisualsScript.pose_for_event("golpe") == "idle", "evento de ação desconhecido -> 'idle'")
+	_check(FighterVisualsScript.pose_for_event("defend") == "defesa", "evento de defesa -> pose 'defesa'")
+	_check(FighterVisualsScript.pose_for_event("blocked") == "defesa", "evento de aparo -> pose 'defesa'")
+	_check(FighterVisualsScript.pose_for_event("dodged") == "defesa", "evento de esquiva -> pose 'defesa'")
+	_check(FighterVisualsScript.pose_for_event("hit") == "levado", "evento de levou golpe -> pose 'levado'")
+	_check(FighterVisualsScript.pose_for_event("idle") == "idle", "evento de repouso -> pose 'idle'")
+	_check(FighterVisualsScript.pose_for_event("ko") == "caido", "evento de nocaute -> pose 'caido'")
+	_check(FighterVisualsScript.pose_for_event("fallen") == "caido", "evento de caído -> pose 'caido'")
+	_check(FighterVisualsScript.pose_for_event("evento_inexistente") == "idle", "evento fora do contrato cai em 'idle'")
+	# As 5 poses do contrato de corte estão declaradas na ordem da folha do dono.
+	for pose: String in ["idle", "ataque", "defesa", "levado", "caido"]:
+		_check(FighterVisualsScript.POSES.has(pose), "o contrato inclui a pose semântica '%s'" % pose)
+
+## O manifesto de personagens que vai no repositório é um JSON válido, com a
+## versão, as 5 poses e a entrada do herói.
+func _test_character_manifest_schema() -> void:
+	FighterVisualsScript.set_manifest_path(FighterVisualsScript.CHARACTERS_PATH)
+	var m: Dictionary = FighterVisualsScript.manifest()
+	_check(not m.is_empty(), "characters.json existe e é JSON válido")
+	_check(int(m.get("version", 0)) >= 1, "characters.json tem versão declarada")
+	_check((m.get("poses", []) as Array).size() == 5, "characters.json lista as 5 poses semânticas")
+	var chars: Dictionary = m.get("characters", {})
+	_check(chars.has("hero"), "characters.json tem a entrada do herói (char_id 'hero')")
+	var hero: Dictionary = chars.get("hero", {})
+	for pose: String in FighterVisualsScript.POSES:
+		_check(hero.has(pose), "a entrada do herói mapeia a pose '%s' para um PNG" % pose)
+
+## Sem manifesto do personagem (ou sem a pose), a resolução cai no sprite ATUAL
+## (o conjunto hero_*/enemy_* que já existe) — nunca devolve vazio.
+func _test_pose_resolution_fallback_without_manifest() -> void:
+	var idle := _solid_texture(Color(1, 0, 0))
+	var attack := _solid_texture(Color(0, 1, 0))
+	var defend := _solid_texture(Color(0, 0, 1))
+	var hit := _solid_texture(Color(1, 1, 0))
+	var fallback := {"idle": idle, "attack": attack, "defend": defend, "hit": hit}
+	FighterVisualsScript.set_manifest_path("user://characters_inexistente.json")
+	_check(FighterVisualsScript.resolve("hero", "idle", fallback) == idle, "sem manifesto: 'idle' cai no sprite atual")
+	_check(FighterVisualsScript.resolve("hero", "attack", fallback) == attack, "sem manifesto: 'ataque' cai no sprite atual")
+	_check(FighterVisualsScript.resolve("hero", "defend", fallback) == defend, "sem manifesto: 'defesa' cai no sprite atual")
+	_check(FighterVisualsScript.resolve("hero", "hit", fallback) == hit, "sem manifesto: 'levado' cai no sprite atual")
+	_check(FighterVisualsScript.resolve("hero", "fallen", fallback) == hit, "sem manifesto: 'caído' usa o sprite de levado (a arena inclina)")
+	_check(FighterVisualsScript.path_for("hero", "ataque") == "", "sem manifesto: path da pose é vazio (dispara o fallback)")
+	_check(FighterVisualsScript.resolve("hero", "attack", {}) == null, "fallback vazio e sem manifesto devolve null (chamador decide)")
+
+## O manifesto do dono TEM PRECEDÊNCIA sobre o sprite atual: com uma entrada
+## apontando para um PNG real, a pose resolvida é a do dono (não o fallback).
+func _test_character_manifest_precedence() -> void:
+	var tmp := "user://characters_teste_etapa8.json"
+	var data := {
+		"version": 1,
+		"characters": {
+			"teste": {
+				"ataque": "res://assets/sprites/hero/hero_attack.png",
+				"levado": "res://assets/sprites/hero/hero_defend.png",
+				"caido": "res://assets/sprites/hero/hero_hit.png",
+			},
+		},
+	}
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	f.store_string(JSON.stringify(data))
+	f.close()
+	FighterVisualsScript.set_manifest_path(tmp)
+	var fallback_attack := _solid_texture(Color(1, 0, 0))
+	var fallback_hit := _solid_texture(Color(0, 1, 0))
+	var fallback_idle := _solid_texture(Color(0, 0, 1))
+	var fallback := {"idle": fallback_idle, "attack": fallback_attack, "hit": fallback_hit}
+	_check(FighterVisualsScript.path_for("teste", "ataque") != "", "manifesto do dono resolve o PNG da pose ('ataque')")
+	_check(FighterVisualsScript.path_for("teste", "ataque").ends_with("hero_attack.png"), "o caminho da pose é o PNG declarado no manifesto")
+	var resolved: Texture2D = FighterVisualsScript.resolve("teste", "attack", fallback)
+	_check(resolved != null and resolved != fallback_attack, "MANIFESTO tem PRECEDÊNCIA sobre o sprite atual na pose 'ataque'")
+	var resolved_hit: Texture2D = FighterVisualsScript.resolve("teste", "hit", fallback)
+	_check(resolved_hit != null and resolved_hit != fallback_hit, "'levado' do manifesto tem precedência sobre o hit atual")
+	var resolved_fallen: Texture2D = FighterVisualsScript.resolve("teste", "fallen", fallback)
+	_check(resolved_fallen != null and resolved_fallen != fallback_hit, "'caído' do manifesto tem precedência sobre o hit atual")
+	var resolved_idle: Texture2D = FighterVisualsScript.resolve("teste", "idle", fallback)
+	_check(resolved_idle == fallback_idle, "pose sem entrada no manifesto cai no sprite atual ('idle')")
+	_check(FighterVisualsScript.resolve("sem_manifesto", "attack", fallback) == fallback_attack, "char_id fora do manifesto cai no sprite atual")
+	# Restaura o manifesto de produção e limpa o temporário.
+	FighterVisualsScript.set_manifest_path(FighterVisualsScript.CHARACTERS_PATH)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+
+## Textura sólida 2x2 para os testes de resolução (sem depender de arte no disco).
+func _solid_texture(color: Color) -> ImageTexture:
+	var img := Image.create(2, 2, false, Image.FORMAT_RGBA8)
+	img.fill(color)
+	return ImageTexture.create_from_image(img)
+
 
 

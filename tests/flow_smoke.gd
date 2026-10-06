@@ -371,10 +371,16 @@ func _run_test() -> void:
 		bug_arena.enemy_pos = 2
 		GameState.player.health = GameState.player.max_health
 		GameState.player.armour = GameState.player.max_armour
-		GameState.current_enemy.health = 1
 		GameState.current_enemy.base_agility = 0
 		GameState.current_enemy.base_defence = 0
 		GameState.current_enemy.recompute_derived()
+		# Cenário DETERMINÍSTICO (o teste exige UM golpe que mata): zera a armadura
+		# (a armadura absorve ANTES da vida) e marca o alvo como VULNERÁVEL (a
+		# esquiva não vale) — senão um inimigo sorteado com o traço Ágil pode
+		# esquivar/aparar e o cartaz de fim não aparece (flake de ~10%).
+		GameState.current_enemy.health = 1
+		GameState.current_enemy.armour = 0
+		GameState.current_enemy.vulnerable = true
 		bug_arena.player_action("golpe")
 		await get_tree().create_timer(0.6).timeout
 		_check(_find_button(app, "CONTINUAR") != null, "torneio: o cartaz de fim de luta aparece antes do resumo")

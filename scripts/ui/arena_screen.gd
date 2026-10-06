@@ -222,6 +222,9 @@ func start_new_fight() -> void:
 		return
 	GameState.current_enemy = foe
 	fight_active = true
+	# Nova luta: poses voltam ao repouso (caso a tela seja reaproveitada).
+	_hero_pose = "idle"
+	_enemy_pose = "idle"
 	# POÇÕES (item 6): marca que estamos EM LUTA — só aqui a bolsa deixa usar poção.
 	GameState.in_combat = true
 	round_number = 1
@@ -475,6 +478,7 @@ func _enemy_attack_or_special(defense_bonus: int, weapon: Dictionary) -> void:
 	if bool(result.get("out_of_range", false)):
 		log_lines.append("[color=#bbaec1]%s tenta atacar, mas está longe demais (distância %d).[/color]" % [foe.display_name, distance])
 		return
+	_spawn_attack_effect(false, str(weapon.get("kind", "melee")), distance)
 	_apply_combat_result(foe, GameState.player, message, result)
 	if bool(result.hit) and int(result.entered) > 0 and not bool(result.blocked):
 		_play_pose(true, "hit", 0.3)
@@ -489,6 +493,7 @@ func _player_attack(multiplier: float, accuracy: float, penalty_scale: float, me
 		log_lines.append("[color=#bbaec1]%s, mas está longe demais (distância %d).[/color]" % [message, distance])
 		_crowd_event("missed")
 		return
+	_spawn_attack_effect(true, str(weapon.get("kind", "melee")), distance)
 	_apply_combat_result(GameState.player, foe, message, result)
 	if bool(result.hit) and int(result.entered) > 0 and not bool(result.blocked):
 		_play_pose(false, "hit", 0.3)
@@ -612,10 +617,12 @@ func _player_taunt() -> bool:
 ## Ataque do inimigo forçado pelo Taunt: precisão baixa, consome o turno dele.
 func _enemy_forced_attack() -> void:
 	_play_pose(false, "attack", 0.35)
-	var result: Dictionary = CombatResolverScript.resolve_positional_attack(foe, GameState.player, _foe_weapon(), distance, 1.0, 0.5, 0)
+	var forced_weapon := _foe_weapon()
+	var result: Dictionary = CombatResolverScript.resolve_positional_attack(foe, GameState.player, forced_weapon, distance, 1.0, 0.5, 0)
 	if bool(result.get("out_of_range", false)):
 		log_lines.append("[color=#bbaec1]%s tenta atacar, mas está longe demais.[/color]" % foe.display_name)
 		return
+	_spawn_attack_effect(false, str(forced_weapon.get("kind", "melee")), distance)
 	_apply_combat_result(foe, GameState.player, "%s ataca (precisão baixa)" % foe.display_name, result)
 	if bool(result.hit) and int(result.entered) > 0 and not bool(result.blocked):
 		_play_pose(true, "hit", 0.3)
@@ -664,6 +671,7 @@ func _apply_combat_result(attacker, target, message: String, result: Dictionary)
 		_damage_taken += entered
 	if bool(result.get("blocked", false)):
 		_flash_defense(target_is_player)
+		_spawn_block_effect(target_is_player)
 		_spawn_status_text(target_is_player, "APAROU %d" % int(result.get("blocked_amount", 0)), ARMOUR_COLOR)
 		log_lines.append("[color=#70b9e8]%s: %s aparou %d, entrou %d.[/color]" % [message, target.display_name, int(result.get("blocked_amount", 0)), entered])
 		if bool(result.get("countered", false)):
@@ -673,6 +681,7 @@ func _apply_combat_result(attacker, target, message: String, result: Dictionary)
 		log_lines.append("%s e causa [color=#d95858]%d de dano[/color].%s" % [message, entered, tag])
 	if entered > 0:
 		_spawn_damage_text(target_is_player, entered, bool(result.get("critical", false)))
+		_spawn_hit_effect(target_is_player)
 
 ## TRAÇOS (item 8): imprime no log cada mordida do traço de combate do inimigo
 ## (ex.: 'Frágil: +25% de dano', 'Ágil: esquivou com facilidade'). Sem isso a QA
@@ -779,6 +788,8 @@ func _update_track() -> void:
 func win_fight() -> void:
 	fight_active = false
 	set_actions_enabled(false)
+	# O DERROTADO fica na pose caída (o inimigo caiu); o herói continua em pé.
+	_set_downed(false)
 	var was_boss: bool = GameState.is_boss_stage()
 	# Felicidade do público (item H) → multiplicador de OURO da vitória (×1,0..×2,0;
 	# o teto sobe com o RANK — arena mais lotada, item I).
@@ -811,6 +822,8 @@ func win_fight() -> void:
 func lose_fight() -> void:
 	fight_active = false
 	set_actions_enabled(false)
+	# O DERROTADO é o jogador: fica na pose caída.
+	_set_downed(true)
 	var outcome: Dictionary = GameState.on_defeat(_took_critical)
 	var result = FightResultScript.new(false, round_number)
 	_fill_result(result, 0, 0)
@@ -1231,6 +1244,11 @@ func _position_fighters() -> void:
 	var enemy_x := lerpf(left, right, float(enemy_pos) / max_cell)
 	var hero_target := Vector2(hero_x - GROUP_W * 0.5, foot_y - GROUP_H)
 	var enemy_target := Vector2(enemy_x - GROUP_W * 0.5, foot_y - GROUP_H)
+	# Poeira nos pés de quem se moveu (recuo/avanço) — antes de reposicionar.
+	if _hero_moving:
+		_spawn_dust_effect(true)
+	if _enemy_moving:
+		_spawn_dust_effect(false)
 	_move_fighter(_hero_group, hero_target, _hero_moving)
 	_move_fighter(_enemy_group, enemy_target, _enemy_moving)
 	_hero_moving = false
@@ -1257,11 +1275,14 @@ func _update_fighter_visuals(is_hero: bool) -> void:
 	var armour_label := _hero_armour_label if is_hero else _enemy_armour_label
 	var tag := _hero_tag if is_hero else _enemy_tag
 	var pose := _hero_pose if is_hero else _enemy_pose
-	var texture: Texture2D = tex.get(pose, {}) if tex.has(pose) else null
-	if texture == null:
-		texture = tex.get("idle", null)
+	# PONTO ÚNICO de troca de sprite (herói E inimigo passam por aqui): a arte do
+	# dono (assets/gen/characters.json, por char_id + pose) tem PRECEDÊNCIA; sem
+	# entrada/PNG, cai no conjunto atual hero_*/enemy_*. Ver FighterVisuals.
+	var char_id := _hero_char_id() if is_hero else _enemy_char_id()
+	var texture: Texture2D = FighterVisuals.resolve(char_id, pose, tex)
 	if texture != null:
 		sprite.texture = texture
+	_apply_downed_look(sprite, pose)
 	if bar.max_value != fighter.max_health:
 		bar.max_value = float(fighter.max_health)
 	bar.value = float(fighter.health)
@@ -1274,6 +1295,81 @@ func _update_fighter_visuals(is_hero: bool) -> void:
 		tag.text = "%s  •  Nv %d" % [GameState.player.display_name, GameState.player.level]
 	else:
 		tag.text = "%s  •  Nv %d" % [foe.display_name, foe.level]
+
+## Id de arte do herói (chave do characters.json). Hoje é "hero" — o mesmo id da
+## folha do dono (docs/ARTE.md §3-A).
+func _hero_char_id() -> String:
+	return "hero"
+
+## Id de arte do inimigo: o id do adversário (brutus, imperator...) é a chave do
+## characters.json; sem ele, "enemy" (cai no sprite atual enemy_*).
+func _enemy_char_id() -> String:
+	if foe != null:
+		var cid := str(foe.id)
+		if cid != "":
+			return cid
+	return "enemy"
+
+## Pose de caído (fim de luta): usa a arte "caido" do dono se existir; senão a
+## arena INCLINA e ESCURECE o sprite de "levado" (não precisa de arte nova).
+func _apply_downed_look(sprite: TextureRect, pose: String) -> void:
+	if sprite == null:
+		return
+	var downed := pose == "fallen"
+	sprite.pivot_offset = Vector2(SPRITE_DISPLAY * 0.5, SPRITE_DISPLAY) if downed else Vector2.ZERO
+	sprite.rotation = deg_to_rad(82.0) if downed else 0.0
+	sprite.modulate = Color(0.55, 0.5, 0.56, 1.0) if downed else Color.WHITE
+
+## Fim de luta: marca o derrotado na pose caída e atualiza o sprite. O cartaz de
+## VOCÊ VENCEU/PERDEU continua por cima (é overlay da arena, não do palco).
+func _set_downed(is_hero: bool) -> void:
+	if is_hero:
+		_hero_pose = "fallen"
+	else:
+		_enemy_pose = "fallen"
+	_update_fighter_visuals(is_hero)
+
+# --- Efeitos e projéteis procedurais (etapa 8) ------------------------------
+# Tudo desenhado por código (FightEffects): NÃO bloqueia a luta nem muda o ritmo.
+
+func _stage_ready() -> bool:
+	return _stage != null and _hero_group != null and _enemy_group != null
+
+## Âncora visual de um lutador (altura do peito) para efeitos e projéteis.
+func _fighter_anchor(is_hero: bool) -> Vector2:
+	var group := _hero_group if is_hero else _enemy_group
+	if group == null:
+		return Vector2.ZERO
+	return group.position + Vector2(GROUP_W * 0.5, GROUP_H - SPRITE_DISPLAY * 0.55)
+
+## Golpe: arco de corte (corpo a corpo) ou projétil voando (à distância).
+func _spawn_attack_effect(is_hero: bool, weapon_kind: String, bands: int) -> void:
+	if not _stage_ready():
+		return
+	var from := _fighter_anchor(is_hero)
+	var to := _fighter_anchor(not is_hero)
+	if weapon_kind == "ranged":
+		FightEffects.projectile(_stage, from, to, bands)
+	else:
+		FightEffects.slice_arc(_stage, from, to)
+
+## Aparo: anel de faísca curto no defensor.
+func _spawn_block_effect(is_hero: bool) -> void:
+	if not _stage_ready():
+		return
+	FightEffects.spark_ring(_stage, _fighter_anchor(is_hero))
+
+## Dano levado: respingo curto no sentido de quem bateu.
+func _spawn_hit_effect(is_hero: bool) -> void:
+	if not _stage_ready():
+		return
+	FightEffects.hit_spray(_stage, _fighter_anchor(is_hero), _fighter_anchor(not is_hero) - _fighter_anchor(is_hero))
+
+## Recuo/avanço: puff de poeira nos pés.
+func _spawn_dust_effect(is_hero: bool) -> void:
+	if not _stage_ready():
+		return
+	FightEffects.dust_puff(_stage, _fighter_anchor(is_hero))
 
 ## Número de dano flutuante acima do lutador atingido ("life hit").
 func _spawn_damage_text(is_hero: bool, amount: int, critical: bool) -> void:

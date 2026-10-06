@@ -1,0 +1,14 @@
+{
+	"version": 1,
+	"comment": "Manifesto de PERSONAGENS (etapa 8 do PLANO_3.0). Mapeia char_id -> pose semântica -> PNG. O manifesto TEM PRECEDÊNCIA sobre os sprites atuais (hero_*/enemy_*); se a entrada ou o PNG não existirem, o jogo cai no sprite atual. Corte a folha do dono para assets/gen/<char>/pose_<pose>.png com tools/slice_sheet.gd (ver docs/ARTE.md §7).",
+	"poses": ["idle", "ataque", "defesa", "levado", "caido"],
+	"characters": {
+		"hero": {
+			"idle": "hero/pose_idle.png",
+			"ataque": "hero/pose_ataque.png",
+			"defesa": "hero/pose_defesa.png",
+			"levado": "hero/pose_levado.png",
+			"caido": "hero/pose_caido.png"
+		}
+	}
+}
