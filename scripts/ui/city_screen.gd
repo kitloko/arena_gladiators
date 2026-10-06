@@ -24,6 +24,7 @@ const DIM := Color("bbaec1")
 const ABILITY := Color("b08de7")
 
 var _rest_dialog: Control = null
+var _new_dialog: Control = null
 var _notice: String = ""
 
 func _ready() -> void:
@@ -66,17 +67,21 @@ func _build_interface() -> void:
 		tier_button.pressed.connect(tournament_requested.emit.bind(str(tier.get("id", ""))))
 		tier_row.add_child(tier_button)
 	root.add_child(tier_row)
-	_add_button(root, "🛒 LOJA", GOLD, shop_requested.emit)
-	var rest_button := _make_big_button("🛌 DESCANSAR (custa ouro)", Color("70b9e8"))
+	# Emojis fora do BMP (U+1F6D2 carrinho, U+1F6CC cama, U+1F464 busto) não existem na
+	# fonte embutida do Godot: apareciam como quadradinho no lugar do ícone (medido com a
+	# renderização real, não com Font.has_char(), que erra por causa do fallback).
+	_add_button(root, "• LOJA", GOLD, shop_requested.emit)
+	var rest_button := _make_big_button("• DESCANSAR (custa ouro)", Color("70b9e8"))
 	rest_button.pressed.connect(_open_rest_dialog)
 	root.add_child(rest_button)
-	_add_button(root, "👤 PERSONAGEM E BOLSA", ABILITY, character_requested.emit)
-	_add_button(root, "✦ NOVO GLADIADOR", Color("8f83b3"), new_requested.emit)
+	_add_button(root, "• PERSONAGEM E BOLSA", ABILITY, character_requested.emit)
+	_add_button(root, "✦ NOVO GLADIADOR", Color("8f83b3"), _open_new_dialog)
 
 func _rebuild() -> void:
 	for child in get_children():
 		child.queue_free()
 	_rest_dialog = null
+	_new_dialog = null
 	_build_interface()
 
 # --- Descanso pago ----------------------------------------------------------
@@ -157,6 +162,69 @@ func _close_rest_dialog() -> void:
 	if _rest_dialog != null:
 		_rest_dialog.queue_free()
 		_rest_dialog = null
+
+# --- Novo gladiador ---------------------------------------------------------
+
+## Apagar o save era o único botão da cidade que agia no primeiro clique, sem
+## confirmação: um clique errado destruía o progresso. Agora confirma antes.
+func _open_new_dialog() -> void:
+	if _new_dialog != null:
+		return
+	var current := "nenhum gladiador salvo ainda"
+	var p = GameState.player
+	if p != null:
+		current = "%s, nível %d, %d ouro" % [p.display_name, p.level, p.gold]
+	var overlay := Control.new()
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(overlay)
+	_new_dialog = overlay
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.62)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			_close_new_dialog())
+	overlay.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _panel_style(PANEL_DARK, 14, 30))
+	center.add_child(panel)
+	var root := VBoxContainer.new()
+	root.custom_minimum_size = Vector2(470, 0)
+	root.add_theme_constant_override("separation", 12)
+	panel.add_child(root)
+	root.add_child(_make_label("NOVO GLADIADOR", 26, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	root.add_child(_make_label("Isto apaga o progresso salvo (%s) e começa do zero.\nNão há como desfazer." % current, 15, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 10)
+	root.add_child(row)
+	var confirm := Button.new()
+	confirm.text = "APAGAR E COMEÇAR DE NOVO"
+	confirm.custom_minimum_size = Vector2(250, 46)
+	confirm.add_theme_font_size_override("font_size", 15)
+	confirm.pressed.connect(_confirm_new_gladiator)
+	_style_button(confirm, RED)
+	row.add_child(confirm)
+	var cancel := Button.new()
+	cancel.text = "CANCELAR"
+	cancel.custom_minimum_size = Vector2(130, 46)
+	cancel.add_theme_font_size_override("font_size", 15)
+	cancel.pressed.connect(_close_new_dialog)
+	_style_button(cancel, Color("8f83b3"))
+	row.add_child(cancel)
+
+func _confirm_new_gladiator() -> void:
+	_close_new_dialog()
+	new_requested.emit()
+
+func _close_new_dialog() -> void:
+	if _new_dialog != null:
+		_new_dialog.queue_free()
+		_new_dialog = null
 
 func _add_dialog_button(root: VBoxContainer, text_value: String, target: Callable) -> void:
 	var button := Button.new()

@@ -5,7 +5,7 @@ config_version=5
 [application]
 config/name="Arena dos Gladiadores"
 run/main_scene="res://Main.tscn"
-config/features=PackedStringArray("4.3")
+config/features=PackedStringArray("4.5")
 
 [autoload]
 DebugLog="*res://scripts/autoload/debug_log.gd"

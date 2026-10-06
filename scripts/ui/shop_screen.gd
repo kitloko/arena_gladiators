@@ -26,6 +26,9 @@ const INK := Color("f7edf4")
 const MUTED := Color("cdbfd5")
 const DIM := Color("bbaec1")
 const ABILITY := Color("b08de7")
+## Altura máxima da lista de itens da loja. O que couber é sempre um número
+## inteiro de cards — nunca um card cortado ao meio (ver _fit_list_height).
+const MAX_LIST_HEIGHT := 340.0
 
 var _categories: Array[Dictionary] = []
 var _category: String = "arma"
@@ -34,6 +37,7 @@ var _gold_label: Label
 var _category_row: HBoxContainer
 var _subtype_row: HBoxContainer
 var _list: VBoxContainer
+var _scroll: ScrollContainer
 var _reroll_button: Button
 var _status_label: Label
 
@@ -71,14 +75,14 @@ func _build_interface() -> void:
 	_subtype_row.add_theme_constant_override("separation", 8)
 	_subtype_row.custom_minimum_size.y = 40
 	root.add_child(_subtype_row)
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(0, 340)
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root.add_child(scroll)
+	_scroll = ScrollContainer.new()
+	_scroll.custom_minimum_size = Vector2(0, MAX_LIST_HEIGHT)
+	_scroll.size_flags_vertical = Control.SIZE_FILL
+	root.add_child(_scroll)
 	_list = VBoxContainer.new()
 	_list.add_theme_constant_override("separation", 8)
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(_list)
+	_scroll.add_child(_list)
 	root.add_child(_make_label("A loja rerolha de graça quando você sobe de nível. Use ouro para rerolar antes disso.", 12, DIM, HORIZONTAL_ALIGNMENT_CENTER))
 	var bottom := HBoxContainer.new()
 	bottom.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -179,10 +183,30 @@ func _render_items() -> void:
 		return
 	for item: Dictionary in items:
 		_list.add_child(_make_row(item))
+	# A altura só pode ser decidida depois do layout dos cards (ver _fit_list_height).
+	_fit_list_height.call_deferred()
+
+## Fecha a altura da lista em um número INTEIRO de cards: com 3 itens por tipo, o
+## jogador vê os 3 inteiros (ou rola a lista) sem nunca ver um card cortado ao meio.
+func _fit_list_height() -> void:
+	await get_tree().process_frame
+	var rows := _list.get_children()
+	if rows.is_empty():
+		return
+	var tallest := 0.0
+	for row in rows:
+		if row is Control:
+			tallest = maxf(tallest, (row as Control).size.y)
+	if tallest <= 0.0:
+		return
+	var spacing := float(_list.get_theme_constant("separation"))
+	var card := tallest + spacing
+	var whole := clampi(int(floor((MAX_LIST_HEIGHT + spacing) / card)), 1, rows.size())
+	_scroll.custom_minimum_size.y = whole * card - spacing
 
 func _make_row(item: Dictionary) -> PanelContainer:
 	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", _panel_style(PANEL_DARK, 10, 14))
+	panel.add_theme_stylebox_override("panel", _panel_style(PANEL_DARK, 10, 10))
 	var hbox := HBoxContainer.new()
 	hbox.add_theme_constant_override("separation", 14)
 	panel.add_child(hbox)
@@ -197,23 +221,27 @@ func _make_row(item: Dictionary) -> PanelContainer:
 		hbox.add_child(icon)
 	var info := VBoxContainer.new()
 	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	info.add_theme_constant_override("separation", 3)
+	info.add_theme_constant_override("separation", 2)
 	hbox.add_child(info)
+	# Card compacto (4 linhas enxutas): nome + raridade na mesma linha e a
+	# comparação com o equipado em UMA linha em vez de quatro.
 	var rarity_color := Color(str(item.get("rarity_color", "b9b0be")))
 	var rarity_label := str(item.get("rarity", "Comum"))
 	var item_level := int(item.get("level", 1))
-	var name_label := _make_label("%s" % str(item.get("display_name", "Item")), 18, rarity_color)
-	info.add_child(name_label)
-	var meta := "%s  •  nível %d" % [rarity_label, item_level]
-	info.add_child(_make_label(meta, 13, DIM))
+	var title_row := HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", 8)
+	title_row.add_child(_make_label(str(item.get("display_name", "Item")), 17, rarity_color))
+	var title_spacer := Control.new()
+	title_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_row.add_child(title_spacer)
+	title_row.add_child(_make_label("%s  •  nível %d" % [rarity_label, item_level], 12, DIM))
+	info.add_child(title_row)
 	var bonuses := _bonus_text(item)
-	info.add_child(_make_label(bonuses, 14, GREEN))
-	_add_equip_comparison(info, item)
 	var kind_hint := _kind_text(item)
-	if kind_hint != "":
-		info.add_child(_make_label(kind_hint, 12, DIM))
+	info.add_child(_make_label("%s%s" % [bonuses, ("  •  %s" % kind_hint) if kind_hint != "" else ""], 13, GREEN))
 	var slot_title := str(SLOT_TITLES.get(str(item.get("slot", "weapon")), "ITEM"))
-	info.add_child(_make_label("Lugar: %s   •   %d ouro" % [slot_title, int(item.get("price", 0))], 12, DIM))
+	info.add_child(_make_label("Lugar: %s  •  %d ouro" % [slot_title, int(item.get("price", 0))], 12, DIM))
+	_add_equip_comparison(info, item)
 	var action := CenterContainer.new()
 	var button := Button.new()
 	button.custom_minimum_size = Vector2(170, 46)
@@ -253,8 +281,9 @@ func _bonus_text(item: Dictionary) -> String:
 		parts.append("VIDA +%d" % int(item.get("health_bonus", 0)))
 	return "  ".join(parts) if not parts.is_empty() else "sem bônus"
 
-## Mostra a diferença entre o que está equipado no slot e o item da loja,
-## com a variação por status (verde = melhora, vermelho = piora).
+## Mostra a diferença entre o que está equipado no slot e o item da loja em UMA
+## linha, com a variação por status (verde = melhora, vermelho = piora). Antes
+## eram cinco linhas empilhadas, o que estourava a altura do card.
 func _add_equip_comparison(info: VBoxContainer, item: Dictionary) -> void:
 	if GameState.player == null:
 		return
@@ -265,19 +294,28 @@ func _add_equip_comparison(info: VBoxContainer, item: Dictionary) -> void:
 	var equipped_item: Dictionary = GameState.item_data(equipped_id)
 	if equipped_item.is_empty():
 		return
-	info.add_child(_make_label("vs equipado: %s" % str(equipped_item.get("display_name", equipped_id)), 12, DIM))
 	var stats := [
 		["ATQ", "attack_bonus"], ["DEF", "defense_bonus"], ["SORTE", "luck_bonus"], ["VIDA", "health_bonus"],
 	]
+	var parts: Array[String] = []
 	for stat: Array in stats:
 		var current_value := int(equipped_item.get(str(stat[1]), 0))
 		var shop_value := int(item.get(str(stat[1]), 0))
 		if current_value == 0 and shop_value == 0:
 			continue
 		var delta := shop_value - current_value
-		var color := GREEN if delta > 0 else (RED if delta < 0 else MUTED)
-		var delta_text := "=" if delta == 0 else ("%+d" % delta)
-		info.add_child(_make_label("%s  %+d → %+d    [%s]" % [str(stat[0]), current_value, shop_value, delta_text], 13, color))
+		var color := "79cf7b" if delta > 0 else ("d95858" if delta < 0 else "bbaec1")
+		parts.append("[color=#%s]%s %d→%d[/color]" % [color, str(stat[0]), current_value, shop_value])
+	if parts.is_empty():
+		return
+	var line := RichTextLabel.new()
+	line.bbcode_enabled = true
+	line.fit_content = true
+	line.scroll_active = false
+	line.add_theme_font_size_override("normal_font_size", 12)
+	line.add_theme_color_override("default_color", DIM)
+	line.text = "vs %s:  %s" % [str(equipped_item.get("display_name", equipped_id)), "   ".join(parts)]
+	info.add_child(line)
 
 func _kind_text(item: Dictionary) -> String:
 	if str(item.get("slot", "")) != "weapon":

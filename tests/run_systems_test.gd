@@ -28,6 +28,7 @@ func _initialize() -> void:
 	_test_archetypes_content()
 	_test_save_roundtrip()
 	_test_procedural_shop_and_rest()
+	_test_shop_names_follow_power()
 	if _failures == 0:
 		print("PASS: todos os testes de regras passaram.")
 		quit(0)
@@ -226,6 +227,38 @@ func _test_item_data_defaults() -> void:
 	_check(int(item.price) == 45, "ItemData le preco do JSON")
 	_check(int(item.attack_bonus) == 2 and int(item.defense_bonus) == 1, "ItemData le bonus do JSON")
 
+## O nome do item tem que acompanhar o preço dentro do tipo: em cada estoque gerado,
+## um item mais caro nunca pode ter substantivo mais fraco na ordem canônica do
+## data/*.json. Sem isto, o item mais caro do estoque saía como "Espada curta" e o mais
+## barato como "Espada longa" — nome contradizendo o preço na mesma tela.
+func _test_shop_names_follow_power() -> void:
+	var samples := 0
+	var wrong := 0
+	var example := ""
+	for category: Dictionary in ItemGeneratorScript.top_categories():
+		for sub: Dictionary in category.get("subtypes", []):
+			var canonical: Array = sub.get("nouns", [])
+			for attempt in 30:
+				var items: Array = ItemGeneratorScript.generate_shop_stock(3).get(str(sub.get("id", "")), [])
+				samples += 1
+				for a: Dictionary in items:
+					for b: Dictionary in items:
+						# Preço igual não define ordem na tela: só compara quando é diferente.
+						if int(a.get("price", 0)) >= int(b.get("price", 0)):
+							continue
+						var index_a: int = canonical.find(str(a.get("display_name", "")))
+						var index_b: int = canonical.find(str(b.get("display_name", "")))
+						if index_a > index_b:
+							wrong += 1
+							if example == "":
+								example = "%s: %s (%d ouro) mais caro que %s (%d ouro)" % [
+									str(sub.get("label", "?")), str(a.get("display_name", "?")), int(a.get("price", 0)),
+									str(b.get("display_name", "?")), int(b.get("price", 0))]
+	_check(wrong == 0, "nome do item acompanha o preco no mesmo tipo (%d estoques%s)" % [
+		samples, "" if wrong == 0 else " - %d pares fora de ordem, ex: %s" % [wrong, example]])
+
+## Valida o conteúdo de `data/archetypes.json` (os dados existem e carregam). A escolha
+## de classe não existe na criação, então isto é validação de conteúdo, não de sistema.
 func _test_archetypes_content() -> void:
 	var archetypes: Array[Dictionary] = ContentRepositoryScript.load_archetypes()
 	_check(archetypes.size() == 3, "archetypes.json tem 3 arquétipos")
