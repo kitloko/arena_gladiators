@@ -123,7 +123,7 @@ evidência arquivada e **commit direto na `main`** (exceção combinada para est
 | **1** ✅ | A (**7 atributos**) + 1 (pontos no nível) + E (armadura como reserva, esquiva, auto-defesa com 'aparou X, entrou Y') + 7 (ações nomeadas) + C (Taunt) + D (Sleep) | regras PASS (testes novos por atributo e por ação); balanceamento PASS sem afrouxar critérios (Arena Livre alta no nível 1, sem desabar; 3 torneios concluíveis em dificuldade crescente); fluxo PASS; duas barras na tela de luta; save antigo migrado |
 | **2** ✅ | H (felicidade do público + EXIBIR + multiplicador) | eventos mexendo a barra (teste por evento); ×1,0 a ×2,0; ≤3 ações não multiplica; **teste anti-exploit** (spam de EXIBIR / fuga não rendem mais ouro por hora); linha do público no resultado |
 | **3** ✅ | I (rank/KD + títulos + acesso por rank) + B (cidade cenário) + 9 (arenas por faixa) | rank sobe/desce conforme a força do adversário; **farm não chega ao topo**; rebaixa ao cair do piso; destino trancado com motivo; arena mais lotada eleva a felicidade inicial; cidade navegável por cenário |
-| **4** | F (apresentação + comparação antes da luta) + G (apelidos/identidade) | tela aparece antes da luta com as estatísticas comparadas e o Índice de Poder; ENTRAR NA ARENA inicia o combate; provocação sorteada |
+| **4** ✅ | F (apresentação + comparação antes da luta) + G (apelidos/identidade) | tela aparece antes da luta com as estatísticas comparadas e o Índice de Poder; ENTRAR NA ARENA inicia o combate; provocação sorteada |
 | **5** | 2 (ferimentos) + 4 (pechincha) + 5 (apostas) + 6 (poções em combate) + 10 (médico/ferreiro/treinador) | cada mecânica com teste próprio e efeito medido; economia final remedida (ouro por hora dentro do esperado) |
 
 **Definição de pronto:** todas as etapas acima verdes, com evidência (saída dos testes + capturas do jogo
@@ -259,3 +259,43 @@ confirmando que o rank enche a casa.
 arena) — ou seja, é uma praça com textura, **não** uma cidade desenhada com prédios como na sua referência.
 Para chegar naquela arte é preciso uma imagem de fundo nova; dá para gerar uma proceduralmente (desenhada por
 código, estilo estilizado) ou você fornece o wallpaper.
+
+---
+
+## Resultado da etapa 4 — medido (06/10/2026, commit `7f41919`)
+
+**Índice de Poder** (em `scripts/systems/presentation_system.gd`):
+
+```
+PODER = round( STR×2,0 + ATT×1,5 + DEF×1,5 + AGI×1,5 + VIT×1,0 + CAR×0,5 + SOR×1,0 + NÍVEL×5,0 )
+```
+
+Todos os pesos são positivos — mais atributo e mais nível **nunca** diminuem o poder (provado por teste de
+monotonicidade). Exemplos reais: jogador recém-criado **59**; Imperador Cálvus (nível 4) **133**; caso
+determinístico com tudo 10 no nível 1 → **95**.
+
+**A tela (conferida com o jogo aberto, antes da luta da Arena Livre e de cada rodada de torneio):**
+
+| O que aparece | Exemplo medido |
+| --- | --- |
+| Os dois frente a frente | **Bruno** ("Gladiador de Ouro") × **Lívia, a Falcão** ("A Lâmina Silenciosa") |
+| Descrição | "Nível 3, 1 vitória e 0 derrotas, 250 de ouro no bolso." / "Assassina reformada, 1,72 m, 63 kg. Golpeia antes de o público piscar." |
+| Fraqueza declarada | "Fraqueza: Frágil: um único golpe pesado a derruba." |
+| **VS** com o Índice de Poder | **106 × 95** |
+| Comparação em duas colunas | os 7 atributos + **VIDA MÁX** (70 × 58) + **ARMADURA** (7 × 0) + **PODER** + **RANK** (Ouro 2500 pts × sem rank) + **KD** (1 V / 0 D × —) |
+| Provocações sorteadas | "Cheguei; o espetáculo pode começar." / "Você já está morto, só ainda não sabe." |
+| Botão | **ENTRAR NA ARENA** (inicia o combate; nada é jogado antes do clique) |
+
+**Identidade dos inimigos:** 6 templates de `data/enemies.json` ganharam **apelido**, **descrição com altura e
+peso**, **fraqueza** e **2+ falas**; o teste valida todos os campos de todos os inimigos. Inimigo **procedural**
+da Arena Livre (que não tem template) cai na reserva genérica de apelido/falas — comprovado por teste.
+
+**Detalhe de engenharia que evita um bug silencioso:** o adversário é materializado **na apresentação**
+(`GameState.current_enemy`) e a arena **reusa** esse mesmo objeto — sem isso, o inimigo procedural mostrado na
+comparação seria regerado e você lutaria contra *outro* inimigo.
+
+**Testes:** `run_systems_test` PASS (fórmula do Índice de Poder com valor exato + monotonicidade por atributo e
+por nível, sorteio das falas, validação completa de `enemies.json`); `run_balance_test` **intocado** e PASS;
+`flow_smoke` PASS com **98 checagens** (a apresentação aparece antes da luta, mostra os dois nomes, o VS e o
+Índice de Poder, e o combate não começa antes do clique). QA com o jogo aberto: 30 telas em
+`/root/workspace/docs/arena-gladiadores/qa23/`.
