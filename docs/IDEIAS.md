@@ -7,6 +7,10 @@ Referências do dono do projeto (Swords and Sandals — SOS): criação com 8 at
 com locais clicáveis, apresentação do adversário com comparação antes da luta, e combate com **Taunt**,
 **Sleep**, **armadura como reserva separada da vida**, auto-defesa e evasão.
 
+Pedidos novos de 06/10 (segunda leva): **felicidade do público** (barra na luta, eventos que sobem/descem e
+multiplicador de recompensa — item **H**) e **rank/KD** separado do nível, com títulos, arenas por rank mínimo
+e arena mais cheia conforme o rank (item **I**).
+
 > **Correção de leitura registrada (06/10/2026):** o item "mais atributos" do playtest **não era** mais
 > pontos de distribuição — era **mais categorias de atributo** (o SOS tem 8: strength, attack, defence,
 > agility, charisma, vitality, stamina, magicka). Os 20 pontos entregues na 1.6 seguem válidos; o que muda
@@ -145,6 +149,95 @@ item F) e uma fraqueza declarada. **Esforço:** pequeno. **Depende de:** item F 
 
 ---
 
+## H. Felicidade do público (entusiasmo da arena) — *médio*
+
+**Pedido:** barra **no topo da tela de luta** com a empolgação da plateia, de **0 a 100%**. Começa conforme o
+**carisma** dos dois lutadores (luta contra **chefe já começa mais empolgada**) e termina **multiplicando a
+recompensa** — mas luta rápida ou definida em um só golpe **não** multiplica; luta acirrada, com muitas ações,
+multiplica mais.
+
+**Valor inicial:** `30 + (carisma_seu + carisma_dele) × 1,5`, com teto de **70%**; se o inimigo for **chefe**,
+o início tem piso de **60%**. É aqui que o carisma "melhora a % inicial".
+
+**Tabela de eventos (o que mexe na barra durante a luta):**
+
+| Evento | Efeito |
+| --- | --- |
+| seu acerto normal | **+2** |
+| **acerto crítico** | **+6** |
+| **revidar** (contra-ataque depois de aparar) | **+5** |
+| você levou um golpe | **+3** (o público gosta de pancadaria) |
+| sua vida abaixo de 30% e você **continua atacando** | **+4** por turno (drama) |
+| **errou** o ataque | **−5** |
+| entrou em **defesa** (postura defensiva) | **−3** |
+| **recuou** / ficou correndo (arqueiro preservando distância) | **−6** |
+| usou poção / dormiu | **−4** |
+| turno em que **ninguém se acertou** | **−2** |
+| **EXIBIR** (ação nova) | **+8** (com risco, ver abaixo) |
+
+**Ação nova — EXIBIR:** gasta o turno provocando/posando para a plateia. Dá felicidade, mas **te deixa aberto**:
+o inimigo ataca com bônus no turno seguinte, e o **retorno cai por repetição** na mesma luta (+8 → +4 → +2 →
+**−5** "o público se cansou"). Sem isso, exibir vira máquina de dinheiro.
+
+**Recompensa:** `multiplicador = 1,0 + felicidade_final/100` → de **×1,0 a ×2,0**. **Luta definida em ≤ 3 ações
+não multiplica** (fica em ×1,0 e mostra o recado "o público nem viu a luta") — ou seja, aniquilar rápido paga
+menos do que vencer com espetáculo.
+
+**Guardas contra exploit (a barra multiplica dinheiro, então isto é regra, não detalhe):**
+- teto de 100% e queda contínua — não existe luta "perfeita" parada no máximo;
+- **repetição da mesma ação rende cada vez menos** (EXIBIR, e defender/recuar em sequência);
+- luta longa **sem ninguém perder vida** (dois covardes se movendo) faz a barra **cair rápido** (vaias);
+- o multiplicador vale **uma única vez**, no fim, e respeita o teto da arena;
+- **teste dedicado:** "spam de EXIBIR" e "fugir + defender a luta inteira" **não podem** render mais
+  ouro por hora do que lutar direito.
+
+**Onde encosta:** `scripts/ui/arena_screen.gd` (barra no topo + botão EXIBIR + balão da última mudança),
+`scripts/systems/combat_resolver.gd` (cada ação devolve o resultado: acerto / erro / crítico / aparou — o
+`accuracy` e o crítico já existem, falta expor por ação), `scripts/models/fight_result.gd` (campos `crowd` e
+`crowd_multiplier`), `scripts/autoload/game_state.gd` (aplicar o multiplicador na recompensa),
+`data/enemies.json` (marcar **chefe** e o carisma do inimigo), `scripts/ui/result_screen.gd` (linha
+"Público: 82% → recompensa ×1,8").
+**Esforço:** médio. **Depende de:** **Carisma** (item A) para a % inicial — sem o atributo, usaria nível + tier
+do inimigo como substituto. **Como verificar:** teste de regras comparando três lutas (morna/fugitiva ×
+acirrada × nocaute em 1 golpe) e conferindo o multiplicador final; QA visual com a barra subindo e descendo
+pelos eventos; e o **ouro por hora** no `run_balance_test.gd`, que hoje não considera multiplicador nenhum.
+
+---
+
+## I. Rank e KD do gladiador — títulos, acesso e arena cheia — *médio/grande*
+
+**Pedido:** além do **nível**, um **rank** por **pontos ganhos e perdidos a cada luta** — um **KD do
+personagem** — com **título por faixa**, **arenas com rank mínimo** e, quanto maior o rank, **mais difícil e
+mais lotada** a arena.
+
+**Proposta:**
+- **Pontos de rank por luta** conforme a diferença de força: vencer alguém **mais forte** rende muito, vencer
+  alguém **muito mais fraco** rende pouco ou **zero** (piso 0, mata o farm); perder **tira** pontos, e perder
+  para alguém de rank bem menor tira muito (é vergonhoso).
+- **KD** (cartel): vitórias/derrotas registradas, mostradas na tela do personagem e na apresentação antes da
+  luta (item F).
+- **Faixas com título** (sugestão de cortes, calibrar depois com simulação): Areia `0` · Pedra `200` ·
+  Ferro `500` · Aço `900` · Prata `1.500` · Ouro `2.300` · Campeão `3.500` · Lenda `5.000`. Cair abaixo do piso
+  da faixa **rebaixa** o rank, com aviso na tela.
+- **Acesso por rank:** cada destino tem mínimo — Arena Livre aberta, Torneio Menor a partir de **Pedra**,
+  Maior a partir de **Aço**, Grande a partir de **Ouro**. Na cidade o local aparece **trancado com o motivo**
+  ("Precisa de rank Aço — você está em Ferro").
+- **Arena mais lotada:** o rank alimenta o item **H** — a felicidade inicial **e** o teto do multiplicador
+  crescem com o rank (em Ouro a casa está cheia). "Mais difícil" vem da força dos adversários da faixa.
+
+**Onde encosta:** `scripts/models/gladiator_data.gd` (pontos, vitórias, derrotas, rank), `scripts/autoload/
+game_state.gd` (somar/tirar no fim da luta e checar acesso), **novo** `data/ranks.json` (faixas, títulos,
+pisos, rank mínimo por destino, bônus de público), `scripts/ui/city_screen.gd` (locais trancados + título no
+cabeçalho), `scripts/ui/character_screen.gd` (rank, título, KD), `scripts/ui/result_screen.gd` (linha
+"Rank: +12 / −0"), `data/tournaments.json` (rank mínimo).
+**Esforço:** médio a grande (persistência + telas + economia). **Depende de:** campo novo no **save** com
+retrocompatibilidade (o save que já existe não tem rank). **Como verificar:** teste de regras — vencer mais
+forte rende mais que vencer mais fraco; perder para rank muito menor dói mais; **rebaixar** ao cair do piso;
+destino bloqueado abaixo do rank. E uma **simulação de farm** (jogador vencendo sempre na arena fraca): não
+pode chegar ao topo do rank — se chegar, o rank não diz nada.
+
+---
+
 # Ideias já listadas antes (seguem valendo)
 
 1. **Pontos de atributo no nível em vez de menu fixo.** Hoje subir de nível escolhe entre 4 opções prontas
@@ -154,10 +247,12 @@ item F) e uma fraqueza declarada. **Esforço:** pequeno. **Depende de:** item F 
    derrota, que hoje só custa 25% do ouro e cura de graça. *(médio)*
 3. **Títulos e fama.** Sequência de vitórias e torneios vencidos viram título ("Novato", "Veterano",
    "Campeão do Grande Torneio"), mostrado na arena e na cidade — progressão visível. *(pequeno)*
+   → **absorvido pelo item I**: o título passa a vir do rank, com o KD como histórico.
 4. **Mercado negro / pechinchar na loja.** Barra de pechincha (o Carisma/Sorte ajuda) para desconto ou briga
    com o vendedor; item pode ficar mais caro por um tempo. *(médio)*
 5. **Apostar em si mesmo.** Antes da luta, apostar ouro no próprio combate com odds pelo tier do inimigo;
-   perder a aposta soma ao prejuízo. *(pequeno/médio)*
+   perder a aposta soma ao prejuízo. *(pequeno/médio)* — as odds conversam com o item **H** (público empolgado
+   = aposta maior).
 6. **Poções e itens de uso em combate.** Slot de consumível na arena (cura, força temporária) — no print do
    SOS as poções aparecem no HUD, com contagem (260 / 190). *(médio)*
 7. **Combate: golpe forte / defesa firme com custo.** O print mostra ações nomeadas (`HACK`, `SNIPE`,
@@ -175,9 +270,13 @@ item F) e uma fraqueza declarada. **Esforço:** pequeno. **Depende de:** item F 
 | Fase | Itens | Por quê nesta ordem |
 | --- | --- | --- |
 | **1 — barato e visível** | F (apresentação/comparação), C (Taunt), D (Sleep), G (apelidos) | meses de "sabor" com risco baixo: não mexem na curva de balanceamento |
-| **2 — combate de verdade** | E (armadura como reserva + aparar + esquiva), 7 (ataques nomeados) | muda a matemática do combate: exige refazer `run_balance_test.gd` **antes** de codar |
-| **3 — o salto do SOS** | A (8 atributos) + 1 (pontos no nível) + magia | redesenho grande: criação, itens, loja, IA e balanceamento inteiro |
-| **4 — mundo** | B (cidade cenário), 9 (cidades diferentes), 10 (serviços), 2/3/4/5/6 | economia e progressão de longo prazo |
+| **2 — combate de verdade** | E (armadura como reserva + aparar + esquiva), 7 (ataques nomeados), **H (felicidade do público + EXIBIR)** | muda a matemática do combate: exige refazer `run_balance_test.gd` **antes** de codar. O H depende dos eventos por ação do E/7 |
+| **3 — o salto do SOS** | A (8 atributos) + 1 (pontos no nível) + magia | redesenho grande: criação, itens, loja, IA e balanceamento inteiro. O **carisma** do A é o que dá a % inicial do H |
+| **4 — mundo e progressão** | **I (rank/KD + títulos + acesso)**, B (cidade cenário), 9 (cidades diferentes), 10 (serviços), 2, 3, 4, 5, 6 | economia e progressão de longo prazo; o I alimenta o H (arena mais cheia com rank maior) |
+
+> **Dependências entre os dois itens novos:** o **I** (rank) mexe no **H** (público) — rank maior = arena mais
+> lotada = felicidade inicial e teto do multiplicador maiores. Se a ordem de implementação inverter (H antes do
+> I), o H usa o **nível** no lugar do rank e depois é só trocar a fonte do bônus.
 
 Os itens 1–10 já estavam propostos em `docs/PLANO_1.6.md` §7; este documento é a versão consolidada
 e ampliada (não substitui o histórico, complementa).
