@@ -121,7 +121,7 @@ evidência arquivada e **commit direto na `main`** (exceção combinada para est
 | Etapa | Conteúdo | Aceite |
 | --- | --- | --- |
 | **1** ✅ | A (**7 atributos**) + 1 (pontos no nível) + E (armadura como reserva, esquiva, auto-defesa com 'aparou X, entrou Y') + 7 (ações nomeadas) + C (Taunt) + D (Sleep) | regras PASS (testes novos por atributo e por ação); balanceamento PASS sem afrouxar critérios (Arena Livre alta no nível 1, sem desabar; 3 torneios concluíveis em dificuldade crescente); fluxo PASS; duas barras na tela de luta; save antigo migrado |
-| **2** | H (felicidade do público + EXIBIR + multiplicador) | eventos mexendo a barra (teste por evento); ×1,0 a ×2,0; ≤3 ações não multiplica; **teste anti-exploit** (spam de EXIBIR / fuga não rendem mais ouro por hora); linha do público no resultado |
+| **2** ✅ | H (felicidade do público + EXIBIR + multiplicador) | eventos mexendo a barra (teste por evento); ×1,0 a ×2,0; ≤3 ações não multiplica; **teste anti-exploit** (spam de EXIBIR / fuga não rendem mais ouro por hora); linha do público no resultado |
 | **3** | I (rank/KD + títulos + acesso por rank) + B (cidade cenário) + 9 (arenas por faixa) | rank sobe/desce conforme a força do adversário; **farm não chega ao topo**; rebaixa ao cair do piso; destino trancado com motivo; arena mais lotada eleva a felicidade inicial; cidade navegável por cenário |
 | **4** | F (apresentação + comparação antes da luta) + G (apelidos/identidade) | tela aparece antes da luta com as estatísticas comparadas e o Índice de Poder; ENTRAR NA ARENA inicia o combate; provocação sorteada |
 | **5** | 2 (ferimentos) + 4 (pechincha) + 5 (apostas) + 6 (poções em combate) + 10 (médico/ferreiro/treinador) | cada mecânica com teste próprio e efeito medido; economia final remedida (ouro por hora dentro do esperado) |
@@ -175,3 +175,44 @@ atributos (STR 14 · ATT 11 · DEF 6 · AGI 8 · VIT 9 · CHA 6 · SOR 6, vida 6
 log com *"Taunt: Míria, a Raposa avança um passo forçado (distância 1)"* · auto-defesa registrada
 (*aparado 6*) · pontos gastos ao vivo na tela do personagem (VIT 9 → 17, vida máxima 64 → 112) · vida cheia
 ao entrar no torneio (16 → 64).
+
+---
+
+## Resultado da etapa 2 — medido (06/10/2026, commit `42d14f1`)
+
+**Fórmulas em vigor:**
+
+| Regra | Fórmula |
+| --- | --- |
+| Felicidade inicial | `clamp(30 + (CHA_você + CHA_inimigo) × 1,5, 0, 70)`; em luta contra **chefe**, piso **60** |
+| Eventos | acerto **+2** · crítico **+6** · revidar **+5** · levou golpe **+3** · drama (vida < 30% atacando) **+4** · errou **−5** · defesa **−3** · recuo **−6** · dormir **−4** · rodada fria **−2** (agravando: −2, −4, −6…) · repetir defesa/recuo custa **−2 extra** por repetição |
+| **EXIBIR** | +8 → +4 → +2 → **−5** na mesma luta; deixa **ABERTO** (+25% de precisão ao inimigo e a esquiva não vale no turno) |
+| **REVIDAR** | ao aparar: 50% de chance, dano = `round(valor_aparado × 0,6)`, armadura absorve antes |
+| Recompensa | `clamp(1,0 + felicidade/100, 1,0, 2,0)` aplicado ao ouro (arena livre **e** rodadas de torneio); **≤ 3 ações do jogador → ×1,0** ("o público nem viu a luta") |
+| Chefe | `imperator` e `grande_gladiador` marcados com `"boss": true` em `data/enemies.json` |
+
+**Anti-exploit (o número que importa, medido em teste):**
+
+| Estratégia | Ouro por ação | Vitórias |
+| --- | --- | --- |
+| Lutar direito | **14,16** | 400 |
+| Spam de **EXIBIR** | **0,000** | 0 |
+| Fugir + defender a luta toda | **0,000** | 0 |
+
+**Economia com o multiplicador** (ouro por luta, sem loja / 2 peças):
+
+| Nível | Mult. médio | Sem loja | 2 peças |
+| --- | --- | --- | --- |
+| 1 | ×1,19 | 30,6 | 27,6 |
+| 5 | ×1,34 | 108,2 | 113,7 |
+| 10 | ×1,50 | 206,4 | 203,7 |
+| 15 | ×1,51 | 298,9 | 303,6 |
+
+**Efeito no balanceamento:** o contra-ataque (REVIDAR) deixou os torneios um pouco mais difíceis — Menor nv1
+(6 slots) 64% → 61%, Grande nv12 83% → 76% — **sem afrouxar nenhum critério** (todos continuam passando).
+
+**QA com o jogo aberto** (23 telas em `/root/workspace/docs/arena-gladiadores/qa21/`): barra **PÚBLICO DA ARENA**
+no topo com a % (48%, 56%, 53% conforme o carisma dos envolvidos), botão **EXIBIR** junto das demais ações,
+log com a variação por evento (*"Público −6 (arena fria) → 39%"*, *"Público +2 (acerto) → 41%"*), multiplicador
+final calculado (×1,55 e ×1,73) e a linha **"Público: 57% → recompensa ×1,6"** na tela de resultado. A esquiva
+apareceu em jogo (*ERROU* registrado) e as duas barras de VIDA/ARMADURA seguem na tela.
