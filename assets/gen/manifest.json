@@ -1,0 +1,120 @@
+{
+	"comment": "Manifesto da arte gerada. O jogo lê daqui (AssetCatalog). Mesmos ids do contrato de corte do dono (docs/ARTE.md §3).",
+	"generator": "tools/gen_assets.gd",
+	"images": {
+		"B1": {
+			"band": "areia",
+			"file": "B1.png",
+			"height": 1024,
+			"seed": 1307,
+			"type": "cidade",
+			"width": 1536
+		},
+		"B2": {
+			"band": "ferro",
+			"file": "B2.png",
+			"height": 1024,
+			"seed": 1307,
+			"type": "cidade",
+			"width": 1536
+		},
+		"B3": {
+			"band": "prata",
+			"file": "B3.png",
+			"height": 1024,
+			"seed": 1307,
+			"type": "cidade",
+			"width": 1536
+		},
+		"B4": {
+			"band": "areia",
+			"file": "B4.png",
+			"height": 1024,
+			"seed": 1307,
+			"type": "arena",
+			"width": 1536
+		},
+		"B5": {
+			"band": "cascalho",
+			"file": "B5.png",
+			"height": 1024,
+			"seed": 1307,
+			"type": "arena",
+			"width": 1536
+		},
+		"B6": {
+			"band": "noturna",
+			"file": "B6.png",
+			"height": 1024,
+			"seed": 1307,
+			"type": "arena",
+			"width": 1536
+		},
+		"B7": {
+			"band": "nobre",
+			"file": "B7.png",
+			"height": 1024,
+			"seed": 1307,
+			"type": "arena",
+			"width": 1536
+		},
+		"B8": {
+			"band": "covil",
+			"file": "B8.png",
+			"height": 1024,
+			"seed": 1307,
+			"type": "arena",
+			"width": 1536
+		},
+		"B9": {
+			"band": "todas",
+			"file": "B9.png",
+			"height": 256,
+			"seed": 1307,
+			"type": "plateia",
+			"width": 1536
+		},
+		"F1": {
+			"band": "todas",
+			"file": "F1.png",
+			"height": 256,
+			"seed": 1307,
+			"type": "painel",
+			"width": 256
+		},
+		"F2": {
+			"band": "todas",
+			"file": "F2.png",
+			"height": 96,
+			"seed": 1307,
+			"type": "botao",
+			"width": 256
+		}
+	},
+	"map": {
+		"arenas": {
+			"areia": [
+				"B4",
+				"B5"
+			],
+			"ferro": [
+				"B6",
+				"B5"
+			],
+			"prata": [
+				"B7"
+			]
+		},
+		"boss_arena": "B8",
+		"button": "F2",
+		"cities": {
+			"areia": "B1",
+			"ferro": "B2",
+			"prata": "B3"
+		},
+		"crowd": "B9",
+		"panel": "F1"
+	},
+	"seed": 1307,
+	"version": 1
+}

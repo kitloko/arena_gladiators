@@ -12,7 +12,7 @@ Atualizado em 06/10/2026, junto do `PLANO_3.0.md` (etapa 7 = arte).
 | Procedural ou sprite? | **Os dois, divididos por natureza** (§5). Sprite seu para o que precisa de "cara"; procedural meu para o infinito. |
 | Uma imagem com tudo e você corta? | **Sim** — uma folha por família, grade fixa, **até ~12 células por folha**. Folha densa o gerador desalinha. |
 | Um prompt por sprite? | **Não**: **um prompt por folha**. Mais barato, estilo coerente e eu corto. |
-| Você precisa de uma lista? | **É este documento** (§3 inventário, §4 prompts). |
+| Você precisa de uma lista? | **É este documento** (§3 inventário) — e o **prompt de cada folha** está em `PROMPTS_ARTE.md`. |
 | Efeito de arma na mão / projétil? | A arma vem **na própria folha do personagem** (pose de ataque e parado) — alinhar arma solta na mão por gerador é loteria. Projétil vem solto (§3-E2) e eu giro por código. |
 
 ---
@@ -21,7 +21,10 @@ Atualizado em 06/10/2026, junto do `PLANO_3.0.md` (etapa 7 = arte).
 
 Se você seguir isto, meu cortador acerta sempre:
 
-1. **PNG com fundo transparente de verdade** (nada de xadrez desenhado, nada de branco). Cenários são a exceção (opacos).
+1. **Fundo chapado de uma cor que NÃO exista na arte** — **preto `#000000`** para arte clara (metais, ouro,
+   potions, armaduras) e **magenta `#FF00FF`** para arte escura (silhuetas, poeira, sangue, fumaça). Não peça
+   "PNG transparente": gerador pinta xadrez ou branco, e eu **arranco a cor no corte** (flood fill pelas bordas).
+   Cenários são a exceção (opacos).
 2. **Grade exata** declarada: ex. `5 colunas x 1 linha, células de 256x256`. Eu corto por essa grade.
 3. **Margem de 8 px** dentro de cada célula: nada encostando na borda da célula e **nada cruzando a grade**. (Se cruzar, eu ainda corto por detecção de alfa, mas perco precisão de ancoragem.)
 4. **Personagem centralizado** e com os **pés na mesma linha** (baseline) em todas as poses — é o que permite trocar pose/animação sem o boneco "pular" na tela.
@@ -29,6 +32,9 @@ Se você seguir isto, meu cortador acerta sempre:
 6. **Mesmo estilo** em todas as folhas: comece **todo prompt** com o bloco de estilo (§4.1). Sem isso as folhas não combinam entre si.
 7. **Até ~12 células** por folha, com **célula de 128 px** (itens/ícones), **256 px** (personagens) ou **1024+ px** (cenários).
 8. **Uma folha = uma família** (todos os arcos; todos os capacetes; todas as poses de um inimigo). Se precisar de mais itens, faça **mais folhas**, não uma folha maior.
+9. **A VISTA É 3/4 VIRADA PARA A DIREITA — nunca de frente.** O jogo é de lado: o herói fica à esquerda
+   olhando para a direita e o **inimigo é o espelho dele** (`flip_h` no código), então **uma folha serve para
+   os dois**. Objeto: perfil limpo. Cenário: vista frontal ampla. (A folha de frente não serve na arena.)
 
 **O que eu faço com a folha:** corto pela grade → **detecto o alfa** dentro de cada célula → acho o desenho real, centralizo no eixo de ancoragem e salvo como `<id>.png` + registro no manifesto (`assets/gen/manifest.json`). Depois digo, em QA, **qual célula virou qual item** — nada entra em silêncio.
 
@@ -121,6 +127,9 @@ Se você seguir isto, meu cortador acerta sempre:
 
 ## 4. Prompts prontos
 
+> **Os prompts de TODAS as 57 folhas estão em `PROMPTS_ARTE.md`** (gerados por script, um por folha, prontos
+> para colar). Aqui ficam só os blocos-base e os exemplos que explicam o molde.
+
 ### 4.1 O bloco de estilo (cole no começo de TODO prompt)
 
 ```
@@ -139,8 +148,9 @@ the cell edges, extra empty margin around each picture.
 **A1 — Herói espadachim (5 poses, 5×1, 256 px)**
 ```
 <BLOCO DE ESTILO>
-Subject: the SAME gladiator hero, front view, male, light leather armour with a red
-shoulder cloth, short sword held in the RIGHT hand.
+Subject: the SAME gladiator hero, THREE-QUARTER VIEW facing the RIGHT side of the image
+(never front view), male, light leather armour with a red shoulder cloth, short sword
+held in the RIGHT hand.
 Draw exactly 5 pictures of this same character in one horizontal row:
 1) idle standing, weapon in hand pointing down  2) mid-attack, sword swinging forward
 3) defensive stance, sword raised across the chest, shield-less parry

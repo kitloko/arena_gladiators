@@ -2,9 +2,12 @@ class_name CityScreen
 extends Control
 
 ## Cidade (item B do plano 2.0) — cenário com LOCAIS CLICÁVEIS no lugar da lista de
-## botões: fundo reaproveitando os assets de arena (arena_ground.jpeg /
-## arena_wall_left/right.png), um HUD do personagem no canto (nome, nível, RANK com
-## título, vida, ouro) e os destinos como botões-ícone com nome e dica.
+## botões: fundo usando a CIDADE GERADA da faixa de rank do jogador (etapa 7 do
+## plano 3.0: manifest/AssetCatalog), um HUD do personagem no canto (nome, nível,
+## RANK com título, vida, ouro) e os destinos como botões-ícone com nome e dica.
+##
+## Fallback: se a cidade gerada faltar, cai nos assets antigos
+## (arena_ground.jpeg + as 2 muralhas) — o jogo nunca fica sem fundo.
 ##
 ## Destino bloqueado por RANK (item I) aparece TRANCADO com o motivo
 ## ("Precisa de rank Aço — você está em Ferro"). A Arena Livre é sempre aberta.
@@ -73,22 +76,37 @@ func _build_interface() -> void:
 	root.add_child(spacer)
 	root.add_child(_build_locations())
 
-## Cenário de fundo: chão da arena + muralhas laterais (assets reaproveitados).
+## Cenário de fundo: a CIDADE GERADA da faixa de rank (etapa 7). Se o PNG faltar,
+## cai no cenário antigo (chão + muralhas da arena) — mesma cara de antes, para o
+## jogo nunca ficar sem fundo.
+var city_art_id: String = ""
+
 func _add_scenery() -> void:
-	var ground := _load_scenery("arena", "arena_ground")
-	if ground != null:
+	var band_id := str(GameState.arena_band().get("id", "areia"))
+	city_art_id = AssetCatalog.city_id(band_id)
+	var city: Texture2D = AssetCatalog.texture(city_art_id)
+	var used_generated := city != null
+	var backdrop_texture: Texture2D = city
+	if backdrop_texture == null:
+		backdrop_texture = _load_scenery("arena", "arena_ground")
+	if backdrop_texture != null:
 		var ground_rect := TextureRect.new()
-		ground_rect.texture = ground
+		ground_rect.texture = backdrop_texture
 		ground_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		ground_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		ground_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		ground_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(ground_rect)
-	_add_wall("arena", "arena_wall_left", true)
-	_add_wall("arena", "arena_wall_right", false)
-	# Sombra para o texto e os botões lerem bem sobre o cenário.
+	if not used_generated:
+		# Fallback: as muralhas antigas (a cidade gerada já traz muralha própria).
+		city_art_id = ""
+		_add_wall("arena", "arena_wall_left", true)
+		_add_wall("arena", "arena_wall_right", false)
+	# Sombra para o texto e os botões lerem bem sobre o cenário. A arte nova já
+	# escurece a faixa de baixo (onde os botões de local ficam), então a sombra é
+	# mais leve; no fallback mantém a sombra de antes.
 	var shade := ColorRect.new()
-	shade.color = Color(0, 0, 0, 0.52)
+	shade.color = Color(0, 0, 0, 0.34 if used_generated else 0.52)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(shade)

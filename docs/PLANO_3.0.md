@@ -203,7 +203,7 @@ Hoje já é procedural: **luta/inimigo** (escala por nível/tier), **item gerado
 | Etapa | Conteúdo | Critério de aceite |
 | --- | --- | --- |
 | **6** ✅ | §3.1 bug do torneio/pontos + §3.2 GANHOU/PERDEU + resumo em modal | reproduzir o bug antes e depois na QA (o torneio **não** reinicia ao distribuir pontos); cartaz antes do resumo |
-| **7** | Gerador de arte + **cidades e arenas** geradas (§4.1/4.2) | `gen_assets.gd` roda headless e produz os PNGs; cidade com imagem de verdade na QA; 3 cenários por faixa |
+| **7** ✅ | Gerador de arte + **cidades e arenas** geradas (§4.1/4.2) | `gen_assets.gd` roda headless e produz os PNGs; cidade com imagem de verdade na QA; 3 cenários por faixa |
 | **8** | Gladiador em camadas + **arma na mão** + armaduras no corpo + efeitos + projéteis | QA com print do gladiador equipado e do ataque com arma e projétil |
 | **9** | Itens: pool maior + **variações únicas** + tiers §5.3 | teste de tabela de drop por grau (seed fixa) + variações fora da loja |
 | **10** | Boss final **aleatório** + **COMBATE FINAL** evidente + item só do boss (§5.1/5.3) | sorteio cobrindo o pool, nenhum item em rodada 1..n−1, marcação clara na tela |
@@ -260,3 +260,41 @@ Depois da 11: rebalanceamento final remedido (a economia e a curva são novament
 **Testes:** `run_systems_test` PASS (3 regras novas: cidade bloqueada, `start_tournament` recusando, item só na
 final), `flow_smoke` PASS (cartaz antes do resumo, cenário do bug, bloqueio da cidade, abandono, COMBATE FINAL) e
 `run_balance_test` PASS **sem nenhum critério afrouxado**.
+
+---
+
+## 11. Resultado da etapa 7 — medido (06/10/2026)
+
+**Gerador de arte no próprio engine, headless, determinístico por seed.**
+
+```
+GODOT_SILENCE_ROOT_WARNING=1 godot --headless --path . -s res://tools/gen_assets.gd -- --seed 1307
+```
+
+| id | tipo | faixa | dimensões |
+| --- | --- | --- | --- |
+| B1 · B2 · B3 | cidades | areia · ferro · prata | 1536x1024 cada |
+| B4 · B5 · B6 · B7 · B8 | arenas | areia · cascalho · noturna · nobre · **covil do boss** | 1536x1024 cada |
+| B9 | plateia | todas | 1536x256 |
+| F1 · F2 | painel e botão 9-slice | todas | 256x256 · 256x96 |
+
+**O que mudou na cidade (o pedido).** Antes a tela da cidade usava **o piso da arena** (`arena_ground.jpeg`) +
+as duas muralhas. Agora cada faixa de rank tem **cidade própria** (B1 areia ensolarada, B2 ferro avermelhada, B3
+mármore com crepúsculo púrpura) com céu, prédios com telhado e janelas acesas, torres com bandeira, tochas com
+brilho, bancas e poeira. O **terço inferior é escurecido de propósito** para os botões de local ficarem legíveis
+(a sombra caiu de 0,52 para 0,34 quando a arte nova está ativa). A arena passa a usar **a arena da faixa** e o
+**covil vermelho** no COMBATE FINAL.
+
+**Critérios atendidos:** o gerador é **idempotente** (duas execuções seguidas dão bytes idênticos) e **sensível ao
+seed**; `tests/run_assets_test.gd` valida o manifesto (todo id no disco, com as dimensões declaradas) e **falha
+com mensagem clara** se o gerador não tiver rodado; `AssetCatalog.texture(id)` cai nos **assets antigos** se o
+manifesto faltar, o id não existir ou o PNG estiver ausente — **nunca fica sem fundo** (testado: com `B1.png`
+escondida, o fundo antigo aparece e nada quebra).
+
+**Nada foi apagado:** `assets/sprites/` está intacto (só foi lido). Os PNGs novos vivem em `assets/gen/` com os
+**mesmos ids do `ARTE.md`**, então **as folhas geradas por você substituem a arte sem tocar em uma linha do jogo**.
+
+**O que ficou de fora (honesto):** F1/F2 foram gerados mas **ainda não integrados** à UI (cidade e arena primeiro,
+como combinado); a plateia B9 foi gerada mas ainda não entrou como camada própria (hoje ela vem embutida em cada
+arena); e nas arenas a "plateia" é abstrata (arcos/silhuetas) — é o limite da arte por código, e é justamente o
+que as folhas suas vão substituir.

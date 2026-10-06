@@ -111,9 +111,16 @@ var _hero_tween: Tween
 var _enemy_tween: Tween
 var _hero_pose := "idle"
 var _enemy_pose := "idle"
-## Faixa de arena desta luta (ideia 9): id/título + cenário variado sem arte nova.
+## Faixa de arena desta luta (ideia 9): id/título + o CENÁRIO GERADO da faixa
+## (etapa 7 do plano 3.0, via AssetCatalog/manifesto). No COMBATE FINAL usa o covil
+## vermelho do boss. Fallback: a arena antiga da faixa, tingida como antes.
 var arena_band_id: String = "areia"
 var arena_band_title: String = "Arenas de Areia"
+## Id da arte de arena desta luta ("" quando caiu no fallback antigo).
+var arena_art_id: String = ""
+var _arena_roll: int = 0
+## Muralhas laterais órfãs: só aparecem no fallback (a arte nova já tem muralha).
+var _stage_walls: Array[TextureRect] = []
 
 func _ready() -> void:
 	_items = ContentRepositoryScript.load_items()
@@ -224,6 +231,7 @@ func start_new_fight() -> void:
 	var is_boss: bool = GameState.is_boss_stage() or bool(foe.boss)
 	var rank_points: int = int(GameState.player.rank_points) if GameState.player != null else 0
 	crowd = CrowdSystemScript.new(GameState.player, foe, is_boss, rank_points)
+	_arena_roll = _compute_arena_roll()
 	_apply_arena_band()
 	_round_cold = true
 	_total_hits = 0
@@ -1073,7 +1081,8 @@ func _load_sprite(folder: String, file_name: String) -> Texture2D:
 			return load(path)
 	return null
 
-## Muralha decorativa no palco (reaproveita assets de arena existentes).
+## Muralha decorativa no palco (asset órfão reaproveitado): só aparece no FALLBACK —
+## a arena gerada já traz muralha/arquibancada próprias.
 func _add_stage_wall(folder: String, file_name: String, on_left: bool) -> void:
 	var texture := _load_sprite(folder, file_name)
 	if texture == null:
@@ -1092,19 +1101,37 @@ func _add_stage_wall(folder: String, file_name: String, on_left: bool) -> void:
 		rect.offset_left = -80.0
 		rect.offset_right = 0.0
 	_stage.add_child(rect)
+	_stage_walls.append(rect)
 
-## Cenário por faixa de rank (ideia 9): o fundo do palco é variado (textura + tom)
-## conforme a faixa, sem arte nova. A faixa também define ouro/risco (GameState).
+## Rolagem estável por luta (para o cenário variar dentro da faixa sem sorteio
+## não-reprodutível): combina a arena atual, a volta e o rank do jogador.
+func _compute_arena_roll() -> int:
+	var base := GameState.arena_number() + GameState.lap
+	if GameState.player != null:
+		base += int(GameState.player.rank_points / 100)
+	return absi(base)
+
+## Cenário por faixa de rank (ideia 9 + etapa 7): a arena GERADA da faixa
+## (AssetCatalog/manifesto) — e o covil vermelho no COMBATE FINAL. Fallback: a
+## arena antiga da faixa, tingida como antes, com as muralhas laterais.
 func _apply_arena_band() -> void:
 	var band := GameState.arena_band()
 	arena_band_id = str(band.get("id", "areia"))
 	arena_band_title = str(band.get("title", "Arenas de Areia"))
 	if _stage_bg == null:
 		return
-	var texture := _load_sprite("arena", str(band.get("texture", "arena_background")))
+	var is_final: bool = GameState.is_final_tournament_round()
+	arena_art_id = AssetCatalog.arena_id(arena_band_id, is_final, _arena_roll)
+	var texture: Texture2D = AssetCatalog.texture(arena_art_id)
+	var used_generated := texture != null
+	if not used_generated:
+		arena_art_id = ""
+		texture = _load_sprite("arena", str(band.get("texture", "arena_background")))
 	if texture != null:
 		_stage_bg.texture = texture
-	_stage_bg.self_modulate = Color(str(band.get("tint", "ffffff")))
+	_stage_bg.self_modulate = Color.WHITE if used_generated else Color(str(band.get("tint", "ffffff")))
+	for wall: TextureRect in _stage_walls:
+		wall.visible = not used_generated
 
 func _load_pose_set(folder: String) -> Dictionary:
 	var base := "enemy" if folder == "enemies" else folder
