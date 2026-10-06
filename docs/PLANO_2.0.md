@@ -6,6 +6,9 @@ Este documento manda: em caso de dúvida, vale o que está aqui. As ideias não 
 
 ## 1. Atributos (item A) — decisão fechada
 
+**São 7 atributos:** STR, ATT, DEF, AGI, VIT, CHA e SOR (a Sorte foi acrescentada pelo dono depois da
+primeira versão desta especificação).
+
 | Atributo | Papel | Observação |
 | --- | --- | --- |
 | **STR** | dano corpo a corpo | entra também na fórmula do Taunt |
@@ -14,10 +17,12 @@ Este documento manda: em caso de dúvida, vale o que está aqui. As ideias não 
 | **AGI** | chance de **esquiva**: não toma dano | |
 | **VIT** | vida máxima | |
 | **CHA** | preço na loja, **felicidade do público**, e **exibição** (aumenta a felicidade) | |
+| **SOR** | chance de **acerto crítico**, **resistência a efeitos aleatórios** (reduz a chance de o Taunt do inimigo funcionar) e bônus de **pechincha** na loja | recupera o `luck` que já existia no jogo |
 | **STA** | — | **NÃO implementar** |
 | **MAG** | — | **NÃO implementar** |
 
-Substituem os 4 antigos (`health`, `attack`, `defense`, `luck`). Save antigo é migrado, não zerado.
+Substituem os 4 antigos (`health`, `attack`, `defense`, `luck`). Save antigo é migrado, não zerado
+(`luck` → SOR).
 
 ## 2. Armadura (item E)
 

@@ -18,12 +18,13 @@ e arena mais cheia conforme o rank (item **I**).
 
 ---
 
-## A. Atributos no estilo SOS — **APROVADO (decisão de 06/10: 6 atributos)**
+## A. Atributos no estilo SOS — **APROVADO (decisão de 06/10: 7 atributos)**
 
 > **Decisão final do dono do projeto:** STR = ataque para melee + força do taunt · ATT = precisão · DEF =
 > chance de defender, uma parte do dano é bloqueada · AGI = chance de esquivar, não toma dano · VIT = vida
-> máxima · CHA = preço, felicidade do público e exibição (aumenta a felicidade). **STA: não implementar.
-> MAG: não implementar.** Especificação completa em [`PLANO_2.0.md`](PLANO_2.0.md).
+> máxima · CHA = preço, felicidade do público e exibição (aumenta a felicidade) · **SOR = acerto crítico,
+> resistência ao azar (Taunt do inimigo) e pechincha**. **STA: não implementar. MAG: não implementar.**
+> Especificação completa em [`PLANO_2.0.md`](PLANO_2.0.md).
 
 **Estado hoje:** 4 atributos (`health`/`attack`/`defense`/`luck`) em `scripts/models/gladiator_data.gd`,
 distribuídos na criação (`scripts/ui/creation_screen.gd`) e usados em `scripts/systems/combat_resolver.gd`.
@@ -42,14 +43,16 @@ stamina · magicka`, com *skill points* para distribuir. Na comparação da luta
 | **AGI** | chance de **esquivar** — não toma dano | `combat_resolver` |
 | **VIT** | vida máxima | `gladiator_data` |
 | **CHA** | preço na loja, felicidade do público e **exibição** | `economy_system`, `shop_screen`, `arena_screen` (item H) |
+| **SOR** | **acerto crítico**, resistência a efeitos aleatórios (Taunt do inimigo) e pechincha | `combat_resolver`, `shop_screen` |
 | ~~STA~~ | **não implementar** (decisão do dono) | — |
 | ~~MAG~~ | **não implementar** (decisão do dono) | — |
 
-**Por que:** é o item que mais muda a sensação de construir personagem — distribuir 20 pontos entre 8
-atributos com efeitos distintos gera builds (bruto, ágil, carismático/negociador, mago).
+**Por que:** é o item que mais muda a sensação de construir personagem — distribuir 20 pontos entre 7
+atributos com efeitos distintos gera builds (bruto, ágil, sortudo, carismático/negociador).
 
 **Esforço:** grande (toca combate, criação, itens, loja, tela do personagem e o balanceamento inteiro).
-**Depende de:** decidir primeiro se entra magia (item F) — sem magia, `MAG` não tem efeito.
+**Depende de:** nada — **STA e MAG ficaram de fora por decisão do dono** (magia, se voltar, vem como sistema
+próprio depois).
 **Como verificar:** `tests/run_balance_test.gd` refeito com os atributos novos (a curva não pode inverter);
 `tests/run_systems_test.gd` cobrindo cada atributo com efeito mensurável (ex.: +10 AGI reduz o dano recebido
 em X% em N simulações).
@@ -276,7 +279,7 @@ pode chegar ao topo do rank — se chegar, o rank não diz nada.
 | --- | --- | --- |
 | **1 — barato e visível** | F (apresentação/comparação), C (Taunt), D (Sleep), G (apelidos) | meses de "sabor" com risco baixo: não mexem na curva de balanceamento |
 | **2 — combate de verdade** | E (armadura como reserva + aparar + esquiva), 7 (ataques nomeados), **H (felicidade do público + EXIBIR)** | muda a matemática do combate: exige refazer `run_balance_test.gd` **antes** de codar. O H depende dos eventos por ação do E/7 |
-| **3 — o salto do SOS** | A (8 atributos) + 1 (pontos no nível) + magia | redesenho grande: criação, itens, loja, IA e balanceamento inteiro. O **carisma** do A é o que dá a % inicial do H |
+| **3 — o salto do SOS** | A (7 atributos) + 1 (pontos no nível) | redesenho grande: criação, itens, loja, IA e balanceamento inteiro. O **carisma** do A é o que dá a % inicial do H |
 | **4 — mundo e progressão** | **I (rank/KD + títulos + acesso)**, B (cidade cenário), 9 (cidades diferentes), 10 (serviços), 2, 3, 4, 5, 6 | economia e progressão de longo prazo; o I alimenta o H (arena mais cheia com rank maior) |
 
 > **Dependências entre os dois itens novos:** o **I** (rank) mexe no **H** (público) — rank maior = arena mais
