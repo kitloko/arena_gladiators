@@ -15,6 +15,7 @@ const PresentationSystemScript := preload("res://scripts/systems/presentation_sy
 const UniqueItemsScript := preload("res://scripts/systems/unique_items.gd")
 const BossDropTableScript := preload("res://scripts/systems/boss_drop_table.gd")
 const BossPoolScript := preload("res://scripts/systems/boss_pool.gd")
+const FallenWallScript := preload("res://scripts/systems/fallen_wall.gd")
 
 ## Teto duro do multiplicador do público na entrada de on_victory. O teto REAL
 ## depende do rank (CrowdSystem.reward_multiplier), que passa de ×2,0 nas faixas
@@ -52,6 +53,11 @@ var final_boss_id: String = ""
 ## MEMÓRIA CURTA do sorteio (§5.3): último boss sorteado por tier, para NÃO sair
 ## o mesmo duas vezes seguidas no mesmo torneio. Persiste entre torneios da sessão.
 var last_final_boss_by_tier: Dictionary = {}
+
+## MURAL DOS CAÍDOS (etapa 11 / §6): último registro de queda gravado por
+## apply_permadeath — a tela de queda (FallenScreen) lê daqui. Vazio fora de uma
+## morte. É o dado que sobrevive ao apagamento do save.
+var last_fall: Dictionary = {}
 
 ## Estoque procedural da loja (tipo -> Array de itens) e o nível em que foi
 ## gerado — rerolha de graça quando o jogador sobe de nível.
@@ -267,6 +273,86 @@ func abandon_tournament() -> Dictionary:
 		player.heal_full()
 	player_changed.emit(player)
 	return info
+
+# --- PERMADEATH no torneio (etapa 11 / §6) ---------------------------------
+
+## Caminhos do SAVE DA CAMPANHA (hoje um único arquivo: user://savegame.json).
+## A morte no torneio apaga EXATAMENTE estes arquivos — nunca nada fora do
+## user:// do jogo. Listado aqui para o relatório/auditoria provar o escopo.
+func campaign_save_paths() -> Array[String]:
+	return [SaveSystemScript.SAVE_PATH]
+
+## Cópias do Mural dos caídos (registro LOCAL, não na nuvem).
+func mural_entries() -> Array:
+	return FallenWallScript.entries()
+
+## Quantos torneios o gladiador atual já venceu (0 fora de campanha).
+func tournaments_won() -> int:
+	if player == null:
+		return 0
+	return int(player.tournaments_won)
+
+## Monta o registro de queda do personagem ATUAL: nome, rank/título, KD, nível,
+## torneios vencidos, o torneio onde caiu e QUEM foi o carrasco (com o apelido).
+func build_fall_entry() -> Dictionary:
+	if player == null:
+		return {}
+	var executioner := ""
+	var executioner_nick := ""
+	if current_enemy != null:
+		executioner = str(current_enemy.display_name)
+		var identity: Dictionary = PresentationSystemScript.enemy_identity(current_enemy)
+		executioner_nick = str(identity.get("nickname", ""))
+	return {
+		"name": str(player.display_name),
+		"rank_title": player_rank_title(),
+		"rank_points": int(player.rank_points),
+		"wins": int(player.wins),
+		"losses": int(player.losses),
+		"level": int(player.level),
+		"gold": int(player.gold),
+		"tournaments_won": int(player.tournaments_won),
+		"tournament": tournament_tier_name(),
+		"round": tourney_round + 1,
+		"rounds": tournament_round_total(),
+		"boss": is_final_tournament_round(),
+		"executioner": executioner,
+		"executioner_nickname": executioner_nick,
+		"date": Time.get_datetime_string_from_system(),
+	}
+
+## MORTE NO TORNEIO (§6.2/§6.5): apaga o personagem. ORDEM OBRIGATÓRIA:
+##   1) grava o registro no Mural dos caídos (a estatística sobrevive);
+##   2) apaga o SAVE DA CAMPANHA (só o arquivo do jogo, dentro do user://).
+## Vale SÓ para o torneio: na Arena Livre NÃO há permadeath (devolve {} e não
+## toca em nada). `save_path`/`wall_path` (opcionais) existem para os testes
+## usarem arquivos temporários; o jogo usa sempre os caminhos reais.
+## Se o Mural não puder ser gravado, a morte é ABORTADA (save preservado) — não
+## se perde o personagem sem deixar o registro.
+func apply_permadeath(save_path: String = "", wall_path: String = "") -> Dictionary:
+	if player == null or not is_tournament():
+		return {}
+	var entry := build_fall_entry()
+	var mural_path := wall_path if wall_path != "" else FallenWallScript.PATH
+	if not FallenWallScript.add_entry(entry, mural_path):
+		push_error("Mural dos caídos não pôde ser gravado — save preservado.")
+		return {}
+	var paths: Array[String] = []
+	if save_path != "":
+		paths.append(save_path)
+	else:
+		paths = campaign_save_paths()
+	for path: String in paths:
+		SaveSystemScript.delete_save(path)
+	last_fall = entry
+	# O personagem morreu: sai do jogo (nada de salvar um morto por acidente).
+	tourney_prize = 0
+	tourney_round = 0
+	final_boss_id = ""
+	current_enemy = null
+	mode = "free"
+	player = null
+	return entry
 
 func _tier_index(tier_id: String) -> int:
 	for i in _tiers.size():
@@ -484,6 +570,8 @@ func _on_tournament_victory(gold_reward: int, xp_reward: int, crowd_multiplier: 
 		var trophy := _grant_reward_item(_final_boss_grade(), tourney_tier_id)
 		if not trophy.is_empty():
 			loot.append(trophy)
+		# CAMPEÃO (etapa 11): conta o torneio vencido (aparece na queda/Mural).
+		player.tournaments_won += 1
 		cleared = true
 	else:
 		tourney_round += 1

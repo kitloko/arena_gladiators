@@ -44,6 +44,10 @@ var crowd_happiness: int = 0
 var rank_points: int = 0
 var wins: int = 0
 var losses: int = 0
+## TORNEIOS VENCIDOS (etapa 11): quantos torneios o gladiador já concluiu como
+## campeão. É o que a tela de queda e o Mural dos caídos mostram. Save antigo
+## sem a chave entra com 0 (nada é perdido).
+var tournaments_won: int = 0
 
 var base_strength: int = 8
 var base_attack: int = 8
@@ -131,6 +135,7 @@ func _init(values: Dictionary = {}) -> void:
 	rank_points = maxi(0, int(values.get("rank_points", 0)))
 	wins = maxi(0, int(values.get("wins", 0)))
 	losses = maxi(0, int(values.get("losses", 0)))
+	tournaments_won = maxi(0, int(values.get("tournaments_won", 0)))
 	# Formato novo (7 atributos) quando traz qualquer chave nova; senão migra o
 	# formato antigo (health/attack/defense/luck) sem zerar nada.
 	var new_format: bool = int(values.get("attrs_version", 0)) >= ATTRS_VERSION or values.has("base_strength") or values.has("base_defence") or values.has("base_agility") or values.has("base_vitality") or values.has("base_charisma")
@@ -549,6 +554,7 @@ func to_save_data() -> Dictionary:
 		"rank_points": rank_points,
 		"wins": wins,
 		"losses": losses,
+		"tournaments_won": tournaments_won,
 		"injuries": injuries.duplicate(true),
 		"haggle_marks": haggle_marks.duplicate(true),
 		"trained_xp": trained_xp,

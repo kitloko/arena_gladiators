@@ -21,6 +21,7 @@ const BettingSystemScript := preload("res://scripts/systems/betting_system.gd")
 const PotionSystemScript := preload("res://scripts/systems/potion_system.gd")
 const FighterVisualsScript := preload("res://scripts/systems/fighter_visuals.gd")
 const BossPoolScript := preload("res://scripts/systems/boss_pool.gd")
+const FallenWallScript := preload("res://scripts/systems/fallen_wall.gd")
 const GameStateScript := preload("res://scripts/autoload/game_state.gd")
 
 var _failures: int = 0
@@ -115,6 +116,12 @@ func _initialize() -> void:
 	_test_final_boss_draw_covers_pool_and_no_repeat()
 	_test_final_boss_grade_feeds_drop()
 	_test_build_current_foe_uses_drawn_boss()
+	# --- ETAPA 11: PERMADEATH no torneio + Mural dos caídos (§6) ---
+	_test_fallen_wall_local_records()
+	_test_permadeath_writes_mural_before_deleting_save()
+	_test_permadeath_aborts_if_mural_cannot_be_written()
+	_test_free_arena_never_permadeath()
+	_test_tournament_victory_preserves_save()
 	if _failures == 0:
 		print("PASS: todos os testes de regras passaram.")
 		quit(0)
@@ -2166,6 +2173,140 @@ func _test_build_current_foe_uses_drawn_boss() -> void:
 	_check(gs.current_boss_grade() == BossDropTable.clamp_grade(int(template.get("grade", 1))), "current_boss_grade() mostra o grau do boss sorteado (%d)" % gs.current_boss_grade())
 	var identity: Dictionary = PresentationSystemScript.enemy_identity(foe)
 	_check(str(identity.get("nickname", "")) != "" and str(identity.get("weakness", "")) != "" and not (identity.get("taunts", []) as Array).is_empty(), "a identidade do boss sorteado traz apelido/fraqueza/provocação")
+	gs.free()
+
+# ===========================================================================
+# ETAPA 11 — PERMADEATH no torneio + MURAL DOS CAÍDOS (§6)
+# ===========================================================================
+
+## O Mural é um registro LOCAL (user:// do jogo), persistente, com o mais recente
+## no topo. Nada de nuvem.
+func _test_fallen_wall_local_records() -> void:
+	var wall_path := "user://tests_mural_module.json"
+	FallenWallScript.clear(wall_path)
+	_check(FallenWallScript.count(wall_path) == 0, "Mural vazio quando não há caídos")
+	var e1 := {"name": "A", "rank_title": "Ferro", "wins": 3, "losses": 1, "tournaments_won": 0, "tournament": "Torneio Menor", "executioner": "X", "executioner_nickname": "O Xis", "date": "2026-10-06 12:00:00"}
+	var e2 := {"name": "B", "rank_title": "Aço", "wins": 9, "losses": 4, "tournaments_won": 1, "tournament": "Grande Torneio", "executioner": "Y", "executioner_nickname": "O Ípsilon", "date": "2026-10-06 13:00:00"}
+	_check(FallenWallScript.add_entry(e1, wall_path), "o Mural grava o primeiro caído")
+	_check(FallenWallScript.add_entry(e2, wall_path), "o Mural grava o segundo caído")
+	var list: Array = FallenWallScript.entries(wall_path)
+	_check(list.size() == 2, "o Mural é um registro LOCAL persistente (2 caídos)")
+	_check(str((list[0] as Dictionary).get("name", "")) == "B", "o caído mais recente fica no topo do Mural")
+	_check(FallenWallScript.PATH == "user://mural.json", "o Mural vive no user:// do jogo (registro local, NÃO na nuvem)")
+	_check(SaveSystemScript.SAVE_PATH == "user://savegame.json", "o save da campanha é um só arquivo (user://savegame.json)")
+	FallenWallScript.clear(wall_path)
+	_check(not FileAccess.file_exists(wall_path), "clear remove o arquivo do Mural (usado só pelos testes)")
+
+## Derrota no torneio → Mural gravado (com carrasco) + SAVE DA CAMPANHA apagado
+## de verdade. O registro guarda nome, rank/título, KD e torneios vencidos.
+func _test_permadeath_writes_mural_before_deleting_save() -> void:
+	var save_path := "user://tests_permadeath_save.json"
+	var wall_path := "user://tests_permadeath_mural.json"
+	SaveSystemScript.delete_save(save_path)
+	FallenWallScript.clear(wall_path)
+	var player = _fighter({"id": "fallen", "display_name": "Esparta", "level": 6, "rank_points": 1500, "base_vitality": 10, "base_strength": 12})
+	player.wins = 7
+	player.losses = 3
+	player.tournaments_won = 2
+	var gs = _tournament_game_state(player)
+	_check(gs.start_tournament("t2"), "torneio inicia para o teste de permadeath")
+	gs.tourney_round = gs.tournament_round_total() - 1
+	var foe = gs.build_current_foe()
+	gs.current_enemy = foe
+	_check(foe != null, "há um adversário (o futuro carrasco) na rodada")
+	SaveSystemScript.save_game({"version": 2, "player": player.to_save_data()}, save_path)
+	_check(SaveSystemScript.has_save(save_path), "há save da campanha ANTES da morte")
+	var entry: Dictionary = gs.apply_permadeath(save_path, wall_path)
+	_check(not entry.is_empty(), "apply_permadeath registra a queda")
+	_check(not SaveSystemScript.has_save(save_path), "o SAVE DA CAMPANHA é APAGADO de verdade")
+	var mural: Array = FallenWallScript.entries(wall_path)
+	_check(mural.size() == 1, "o Mural dos caídos ganhou 1 registro")
+	if mural.is_empty():
+		gs.free()
+		return
+	var rec: Dictionary = mural[0]
+	_check(str(rec.get("name", "")) == "Esparta", "o Mural guarda o NOME ('%s')" % str(rec.get("name", "")))
+	_check(str(rec.get("rank_title", "")) == "Prata" and int(rec.get("rank_points", -1)) == 1500, "o Mural guarda o RANK/título (%s, %d pts)" % [str(rec.get("rank_title", "")), int(rec.get("rank_points", -1))])
+	_check(int(rec.get("wins", -1)) == 7 and int(rec.get("losses", -1)) == 3, "o Mural guarda o KD (7 V / 3 D)")
+	_check(int(rec.get("tournaments_won", -1)) == 2, "o Mural guarda os TORNEIOS VENCIDOS (2)")
+	_check(str(rec.get("tournament", "")) == "Torneio Maior", "o Mural guarda o TORNEIO ('%s')" % str(rec.get("tournament", "")))
+	_check(str(rec.get("executioner", "")) == str(foe.display_name), "o Mural guarda o CARRASCO (o adversário sorteado, '%s')" % str(rec.get("executioner", "")))
+	_check(str(rec.get("executioner_nickname", "")) != "", "o carrasco vem com APELIDO ('%s')" % str(rec.get("executioner_nickname", "")))
+	_check(str(rec.get("date", "")) != "", "o Mural guarda a DATA ('%s')" % str(rec.get("date", "")))
+	_check(gs.player == null and not gs.is_tournament(), "o personagem apagado sai do jogo (player nulo, fora do torneio)")
+	_check(str(gs.last_fall.get("name", "")) == "Esparta", "last_fall guarda o registro para a tela de queda")
+	# O MESMO vale para o caminho REAL do jogo: a lista de saves apagados é exatamente
+	# o save da campanha (um só arquivo, dentro do user://).
+	var campaign_paths: Array[String] = gs.campaign_save_paths()
+	_check(campaign_paths.size() == 1 and campaign_paths[0] == SaveSystemScript.SAVE_PATH, "o apagamento cobre EXATAMENTE o save do jogo (user://savegame.json)")
+	FallenWallScript.clear(wall_path)
+	SaveSystemScript.delete_save(save_path)
+	gs.free()
+
+## ORDEM (Mural ANTES do apagamento): se o Mural NÃO puder ser gravado, a morte é
+## abortada e o save sobrevive. Prova que o apagamento só acontece DEPOIS do Mural.
+func _test_permadeath_aborts_if_mural_cannot_be_written() -> void:
+	var save_path := "user://tests_order_save.json"
+	# wall_path é um DIRETÓRIO: FileAccess.open(WRITE) falha de forma determinística.
+	var dir_path := "user://tests_order_blocked"
+	DirAccess.make_dir_recursive_absolute(dir_path + "/mural.json")
+	SaveSystemScript.delete_save(save_path)
+	var player = _fighter({"id": "order", "display_name": "Ordem", "level": 5, "rank_points": 900, "base_vitality": 10, "base_strength": 12})
+	var gs = _tournament_game_state(player)
+	_check(gs.start_tournament("t1"), "torneio inicia para o teste de ordem")
+	gs.current_enemy = gs.build_current_foe()
+	SaveSystemScript.save_game({"version": 2, "player": player.to_save_data()}, save_path)
+	_check(SaveSystemScript.has_save(save_path), "há save antes da tentativa de morte")
+	var aborted: Dictionary = gs.apply_permadeath(save_path, dir_path + "/mural.json")
+	_check(aborted.is_empty(), "se o Mural não puder ser gravado, a morte é ABORTADA")
+	_check(SaveSystemScript.has_save(save_path), "MURAL ANTES DO APAGAMENTO: com o Mural falhando, o save NÃO é apagado")
+	_check(gs.player != null and gs.is_tournament(), "o personagem segue vivo (nada foi perdido)")
+	# limpeza
+	SaveSystemScript.delete_save(save_path)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(dir_path + "/mural.json"))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(dir_path))
+	gs.free()
+
+## A ARENA LIVRE NUNCA tem permadeath (§6.3): perder fora do torneio não apaga o
+## save nem cria registro no Mural — o jogo continua normalmente.
+func _test_free_arena_never_permadeath() -> void:
+	var save_path := "user://tests_free_save.json"
+	var wall_path := "user://tests_free_mural.json"
+	SaveSystemScript.delete_save(save_path)
+	FallenWallScript.clear(wall_path)
+	var player = _fighter({"id": "free", "display_name": "Livre", "level": 5, "rank_points": 500, "base_vitality": 10, "base_strength": 12})
+	var gs = _tournament_game_state(player)
+	gs.mode = "free"
+	SaveSystemScript.save_game({"version": 2, "player": player.to_save_data()}, save_path)
+	var result: Dictionary = gs.on_defeat(false)
+	_check(not bool(result.get("tournament", true)), "derrota na Arena Livre NÃO é de torneio")
+	_check(not bool(result.get("campaign_lost", true)), "derrota na Arena Livre não perde a campanha")
+	_check(gs.player != null, "na Arena Livre o personagem segue vivo depois de perder")
+	var r: Dictionary = gs.apply_permadeath(save_path, wall_path)
+	_check(r.is_empty(), "a Arena Livre NUNCA aplica permadeath (devolve vazio)")
+	_check(SaveSystemScript.has_save(save_path), "na Arena Livre o SAVE CONTINUA salvo (nada é apagado)")
+	_check(FallenWallScript.count(wall_path) == 0, "na Arena Livre o Mural NÃO ganha entrada")
+	SaveSystemScript.delete_save(save_path)
+	gs.free()
+
+## Vitória no torneio: save preservado, nada apagado, e o título conta no Mural.
+func _test_tournament_victory_preserves_save() -> void:
+	var save_path := "user://tests_win_save.json"
+	var wall_path := "user://tests_win_mural.json"
+	SaveSystemScript.delete_save(save_path)
+	FallenWallScript.clear(wall_path)
+	var player = _fighter({"id": "champ", "display_name": "Campeão", "level": 6, "rank_points": 900, "base_vitality": 12, "base_strength": 14})
+	var gs = _tournament_game_state(player)
+	_check(gs.start_tournament("t2"), "torneio inicia para o teste de vitória")
+	gs.tourney_round = gs.tournament_round_total() - 1
+	SaveSystemScript.save_game({"version": 2, "player": player.to_save_data()}, save_path)
+	var r: Dictionary = gs.on_victory(50, 40)
+	_check(bool(r.get("campaign_cleared", false)), "vencer a final conclui o torneio")
+	_check(int(player.tournaments_won) == 1, "vencer o torneio conta em torneios vencidos (%d)" % int(player.tournaments_won))
+	_check(gs.tournaments_won() == 1, "GameState.tournaments_won() reflete o título (%d)" % gs.tournaments_won())
+	_check(SaveSystemScript.has_save(save_path), "VITÓRIA no torneio PRESERVA o save (nada é apagado)")
+	_check(FallenWallScript.count(wall_path) == 0, "vitória NÃO cria registro no Mural")
+	SaveSystemScript.delete_save(save_path)
 	gs.free()
 
 

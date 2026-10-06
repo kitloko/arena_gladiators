@@ -17,6 +17,8 @@ signal tournament_requested(tier_id: String)
 signal shop_requested
 signal character_requested
 signal new_requested
+## MURAL DOS CAÍDOS (etapa 11 / §6.4): botão de acesso na cidade.
+signal mural_requested
 
 const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
 const RankSystemScript := preload("res://scripts/systems/rank_system.gd")
@@ -218,6 +220,10 @@ func _build_locations() -> PanelContainer:
 	var new_button := _location_button("» NOVO GLADIADOR", Color("8f83b3"), "Começar do zero (apaga o progresso — pede confirmação).", true)
 	new_button.pressed.connect(_open_new_dialog)
 	grid.add_child(new_button)
+	# Mural dos caídos (etapa 11 / §6.4): registro local dos que morreram em torneio.
+	var mural_button := _location_button("» MURAL DOS CAÍDOS", Color("a97fc0"), "Ver os gladiadores que morreram em torneios (nome, rank, KD, torneio e carrasco).", true)
+	mural_button.pressed.connect(mural_requested.emit)
+	grid.add_child(mural_button)
 	return panel
 
 func _location_button(text_value: String, color: Color, hint: String, enabled: bool) -> Button:

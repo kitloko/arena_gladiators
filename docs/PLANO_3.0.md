@@ -207,7 +207,7 @@ Hoje já é procedural: **luta/inimigo** (escala por nível/tier), **item gerado
 | **8** ✅ | Gladiador em camadas + **arma na mão** + armaduras no corpo + efeitos + projéteis | QA com print do gladiador equipado e do ataque com arma e projétil |
 | **9** ✅ | Itens: pool maior + **variações únicas** + tiers §5.3 | teste de tabela de drop por grau (seed fixa) + variações fora da loja |
 | **10** ✅ | Boss final **aleatório** + **COMBATE FINAL** evidente + item só do boss (§5.1/5.3) | sorteio cobrindo o pool, nenhum item em rodada 1..n−1, marcação clara na tela |
-| **11** | **Permadeath** no torneio + Mural dos caídos (§6) | aviso e confirmação, personagem apagado na derrota, arena livre intacta |
+| **11** ✅ | **Permadeath** no torneio + Mural dos caídos (§6) | aviso e confirmação, personagem apagado na derrota, arena livre intacta |
 
 Depois da 11: rebalanceamento final remedido (a economia e a curva são novamente medidas e registradas no
 `BALANCEAMENTO.md`) — é o fecho do 3.0.
@@ -501,3 +501,50 @@ em estrelas, a apresentação completa (apelido/descrição/fraqueza/provocaçã
 **Defeito de teste corrigido:** a asserção do símbolo de grau em `run_systems_test.gd` ainda usava o emoji
 `⭐` (o código já usa `★` desde a etapa 9) e `enemies.size() == 6` (o roster cresceu para 24) — ambos eram
 falhas **pré-existentes da etapa 9**; ajustados para `★` e para "os 6 lutadores base continuam presentes".
+
+---
+
+## 15. Resultado da etapa 11 — medido (06/10/2026)
+
+**O que entrou.** A morte permanente deixa de ser promessa e passa a existir no torneio:
+
+- **Aviso obrigatório** (`scripts/ui/tournament_warning.gd` + `scenes/tournament_warning.tscn`): entrar no
+  torneio — em QUALQUER rodada — passa por uma tela vermelha `MORTE NO TORNEIO = PERSONAGEM APAGADO` com os
+  botões `ENTRAR MESMO ASSIM` e `VOLTAR`. O `app.gd` **só** chama `start_tournament` no sinal de confirmado;
+  cancelar volta para a cidade. Sem confirmar, o torneio não começa.
+- **Tela de queda** (`fallen_screen.gd`/`.tscn`): `A QUEDA DE <nome>` com nível, rank/título e pontos, KD,
+  torneios vencidos, ouro, a rodada e o **CARRASCO** (o boss sorteado, com apelido), mais o aviso de save
+  apagado e o Mural embutido.
+- **Mural dos caídos** (`scripts/systems/fallen_wall.gd`, `user://mural.json`, registro **LOCAL**, não na
+  nuvem): nome, rank, pontos, KD, torneio, rodada, carrasco e data. Acessível pelo botão `» MURAL DOS CAÍDOS`
+  na cidade e pela tela de queda.
+
+**O apagamento (contrato exato).** O save da campanha é **um único arquivo**, `user://savegame.json`
+(`SaveSystem.SAVE_PATH` — não existem save de "progresso" e de "personagem" separados), e é o único que o
+jogo apaga: `campaign_save_paths()` devolve exatamente `[SAVE_PATH]` e a remoção é feita por
+`DirAccess.remove_absolute()` num caminho de arquivo — nunca recursivo, nunca fora do `user://` do jogo. A
+ordem dentro de `GameState.apply_permadeath()` é **1) gravar o Mural → 2) apagar o save**: se o Mural não
+puder ser gravado, **a morte é abortada e o save é preservado** (há teste dedicado para esse caminho). O
+`clear()` do Mural existe só para os testes — o jogo nunca apaga o Mural. Abandonar o torneio (etapa 6)
+continua contando derrota no KD **sem** permadeath: só a derrota em combate apaga.
+
+**Arena Livre intacta.** `apply_permadeath()` sai cedo (`return {}`) quando `not is_tournament()` e a derrota
+na arena livre segue o fluxo normal, sem tela de queda.
+
+**Verificação (suítes):** regras **PASS** (testes de Mural, ordem Mural→save, aborto com Mural ilegível,
+arena livre sem morte e vitória preservando o save), arte **PASS**, **fluxo PASS** (confirmação obrigatória,
+tela de queda com carrasco, save apagado, Mural com 1 caído, personagem nulo) e **balanceamento PASS**
+(`BAL=0`; ouro/luta 30,6 → 306,6 e público ×1,19–×1,52). `run_balance_test.gd` e `assets/` **intocados**.
+
+**QA com o jogo aberto (5 prints).** Aviso vermelho → confirmação → apresentação → tela de queda →
+Mural. Em duas execuções o carrasco saiu **diferente** (`O Carrasco Mudo «A Lâmina Silenciosa»` e depois
+`Leão de Bronze «A Juba de Metal»`), o que mostra o sorteio do pool da etapa 10 chegando inteiro até a
+tela da morte.
+
+**Defeito visual corrigido por mim nesta etapa:** a frase mais importante do aviso — a que explica que a
+Arena Livre NÃO tem morte permanente — estava em uma linha só e era **cortada na borda direita** do painel
+(justamente o trecho que precisa ser lido). Reescrita em três linhas curtas, com `autowrap` como rede.
+
+**Limites conhecidos:** o `push_error("Mural… não pôde ser gravado")` que aparece no log do teste de regras é
+**esperado** (é o teste do caminho de aborto, não uma falha); `tools/measure_pool.gd.uid` e
+`qa/qa_permadeath.gd.uid` são artefatos do `--import`.

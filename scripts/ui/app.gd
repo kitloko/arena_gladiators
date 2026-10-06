@@ -15,6 +15,9 @@ const ResultScreenScene := preload("res://scenes/result_screen.tscn")
 const ShopScreenScene := preload("res://scenes/shop_screen.tscn")
 const CharacterScreenScene := preload("res://scenes/character_screen.tscn")
 const EndScreenScene := preload("res://scenes/end_screen.tscn")
+const TournamentWarningScene := preload("res://scenes/tournament_warning.tscn")
+const FallenScreenScene := preload("res://scenes/fallen_screen.tscn")
+const MuralScreenScene := preload("res://scenes/mural_screen.tscn")
 
 var _pending_result
 var _result_modal: Node = null
@@ -67,6 +70,7 @@ func show_city() -> void:
 	screen.shop_requested.connect(show_shop)
 	screen.character_requested.connect(show_character)
 	screen.new_requested.connect(_on_new_gladiator)
+	screen.mural_requested.connect(show_mural)
 
 ## Aviso de bloqueio da cidade: volta para o RESULTADO pendente (se houver) ou
 ## para a apresentação da rodada em andamento — nunca recomeça o torneio.
@@ -81,8 +85,30 @@ func _on_new_gladiator() -> void:
 	show_creation()
 
 func _on_tournament_requested(tier_id: String) -> void:
+	# §6.1: NINGUÉM entra no torneio sem a confirmação explícita do permadeath.
+	# Quem confirma, inicia; quem não confirma, não entra (start_tournament nunca
+	# é chamado — o torneio simplesmente não começa).
+	show_tournament_warning(tier_id)
+
+## Aviso obrigatório antes de entrar no torneio (etapa 11 / §6.1): a tela de
+## aviso vermelho (TournamentWarning) só emite `confirmed` no ENTRAR MESMO ASSIM.
+func show_tournament_warning(tier_id: String) -> void:
+	if GameState.player == null:
+		show_creation()
+		return
+	_clear_screens()
+	var screen := TournamentWarningScene.instantiate()
+	add_child(screen)
+	screen.set_tier(tier_id)
+	screen.confirmed.connect(_on_tournament_confirmed)
+	screen.cancelled.connect(show_city)
+
+func _on_tournament_confirmed(tier_id: String) -> void:
+	# Só DEPOIS da confirmação o torneio começa de fato.
 	if GameState.start_tournament(tier_id):
 		show_prefight()
+	else:
+		show_city()
 
 # --- Loja / personagem -----------------------------------------------------
 
@@ -166,9 +192,34 @@ func _on_result_action(action: String) -> void:
 			_pending_result = null
 			GameState.abandon_tournament()
 			show_city()
-		"end_victory", "end_defeat":
+		"end_victory":
 			GameState.finish_tournament()
-			show_end(action == "end_victory")
+			show_end(true)
+		"end_defeat":
+			# MORTE NO TORNEIO (§6.2/§6.5): o GameState grava o Mural dos caídos
+			# ANTES de apagar o save da campanha. Depois, a TELA DE QUEDA conta a
+			# história. (A Arena Livre nunca chega aqui com derrota: lá não há
+			# permadeath — o resultado da arena livre segue o fluxo normal.)
+			GameState.apply_permadeath()
+			show_fallen()
+
+## Tela de queda (§6.2): o gladiador morreu num torneio. Mostra nome, rank,
+## KD, torneios vencidos e o carrasco, e o Mural dos caídos.
+func show_fallen() -> void:
+	_pending_result = null
+	GameState.in_combat = false
+	_clear_screens()
+	var screen := FallenScreenScene.instantiate()
+	add_child(screen)
+	screen.restarted.connect(show_creation)
+	screen.mural_requested.connect(show_mural)
+
+## Mural dos caídos (§6.4): MODAL por cima da tela atual (cidade ou queda) —
+## não troca de tela, por isso não chama _clear_screens.
+func show_mural() -> void:
+	var overlay := MuralScreenScene.instantiate()
+	add_child(overlay)
+	overlay.closed.connect(overlay.queue_free)
 
 func show_end(victory: bool) -> void:
 	_clear_screens()

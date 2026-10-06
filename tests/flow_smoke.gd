@@ -8,6 +8,7 @@ const MainScene := preload("res://Main.tscn")
 const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
 const ContentRepositoryScript := preload("res://scripts/repositories/content_repository.gd")
 const TraitSystemScript := preload("res://scripts/systems/trait_system.gd")
+const FallenWallScript := preload("res://scripts/systems/fallen_wall.gd")
 
 var _failures: int = 0
 
@@ -16,6 +17,7 @@ func _ready() -> void:
 
 func _run_test() -> void:
 	GameState.clear_save()
+	FallenWallScript.clear()
 	var app = MainScene.instantiate()
 	add_child(app)
 	await get_tree().process_frame
@@ -329,9 +331,19 @@ func _run_test() -> void:
 	GameState.player.rank_points = 5000
 	_press_button_contains(app, "Grande Torneio")
 	await get_tree().create_timer(0.4).timeout
+	# §6.1 PERMADEATH: entrar no torneio exige a confirmação do aviso vermelho.
+	_check(_find_by_method(app, "set_tier") != null, "entrar no torneio abre a tela de AVISO (TournamentWarning), sem iniciar direto")
+	_check(_find_label_contains(app, "MORTE NO TORNEIO = PERSONAGEM APAGADO") != null, "o aviso vermelho MORTE NO TORNEIO = PERSONAGEM APAGADO aparece antes de entrar")
+	_check(_find_button(app, "ENTRAR MESMO ASSIM") != null, "a confirmação explícita ENTRAR MESMO ASSIM está presente")
+	_check(not GameState.is_tournament(), "SEM confirmar, o torneio NÃO começa (start_tournament não acontece)")
+	_press_button(app, "ENTRAR MESMO ASSIM")
+	await get_tree().create_timer(0.4).timeout
+	_check(GameState.is_tournament(), "depois de CONFIRMAR, o torneio começa")
 	_check(_find_by_method(app, "enter_arena") != null and GameState.is_tournament(), "o torneio também passa pela apresentação antes da luta")
 	_check(_find_by_method(app, "start_new_fight") == null, "torneio: o combate não começa antes do clique")
 	_check(_find_label_contains(app, "VS") != null and _find_label_contains(app, "ÍNDICE DE PODER") != null, "apresentação do torneio mostra o VS e o ÍNDICE DE PODER")
+	# §6.1: o aviso vermelho do permadeath aparece na APRESENTAÇÃO de qualquer rodada.
+	_check(_find_label_contains(app, "MORTE NO TORNEIO = PERSONAGEM APAGADO") != null, "a apresentação da rodada do torneio traz o aviso vermelho do permadeath")
 	# O adversário do torneio vem de um template COM traço: a fraqueza mostrada tem
 	# de nomear exatamente o traço que o combate vai aplicar (item 8).
 	var tourney_foe_id := str(GameState.current_enemy.id) if GameState.current_enemy != null else ""
@@ -437,11 +449,16 @@ func _run_test() -> void:
 	GameState.player.rank_points = 5000
 	_press_button_contains(app, "Grande Torneio")
 	await get_tree().create_timer(0.4).timeout
+	# §6.1: a entrada no torneio continua exigindo a confirmação do permadeath.
+	_check(_find_button(app, "ENTRAR MESMO ASSIM") != null and not GameState.is_tournament(), "a entrada no torneio exige CONFIRMAÇÃO (o torneio ainda não começou)")
+	_press_button(app, "ENTRAR MESMO ASSIM")
+	await get_tree().create_timer(0.4).timeout
 	_check(GameState.is_tournament(), "novo torneio iniciado a partir da cidade")
 	GameState.tourney_round = GameState.tournament_round_total() - 1
 	app.show_prefight()
 	await get_tree().create_timer(0.4).timeout
 	_check(_find_label_contains(app, "COMBATE FINAL") != null, "a APRESENTAÇÃO marca COMBATE FINAL na rodada final")
+	_check(_find_label_contains(app, "MORTE NO TORNEIO = PERSONAGEM APAGADO") != null, "a apresentação FINAL também traz o aviso vermelho do permadeath")
 	var boss_name: String = GameState.final_boss_name()
 	_check(boss_name != "" and _find_label_contains(app, boss_name) != null, "a faixa COMBATE FINAL nomeia o boss ('%s')" % boss_name)
 	_check(_find_label_contains(app, "Só aqui o troféu") != null, "a apresentação avisa que só aqui o troféu aparece")
@@ -449,7 +466,45 @@ func _run_test() -> void:
 	await get_tree().create_timer(0.5).timeout
 	_check(_find_label_contains(app, "COMBATE FINAL") != null, "a ARENA marca COMBATE FINAL na rodada final")
 	_check(_find_label_contains(app, "só aqui o troféu") != null, "o log da arena avisa que só na final o troféu aparece")
-	GameState.finish_tournament()
+	# 17) PERMADEATH (§6.2/§6.5): derrota dentro do torneio APAGA o personagem e vai
+	# para a TELA DE QUEDA; o Mural dos caídos é gravado ANTES do apagamento.
+	GameState.current_enemy = GameState.build_current_foe()
+	var carrasco_nome := str(GameState.current_enemy.display_name)
+	GameState.player.wins = 4
+	GameState.player.losses = 1
+	GameState.player.tournaments_won = 1
+	# um save real (como o que existe desde a cidade) — e ele TEM de sumir
+	GameState.mode = "free"
+	GameState.save_progress()
+	GameState.mode = "tournament"
+	_check(GameState.has_save(), "há save da campanha ANTES da morte no torneio")
+	var defeat: Dictionary = GameState.on_defeat(false)
+	var res := FightResult.new(false, 3)
+	res.opponent_name = carrasco_nome
+	res.tournament = true
+	res.campaign_lost = bool(defeat.get("campaign_lost", false))
+	res.penalty = int(defeat.get("penalty", 0))
+	app._pending_result = res
+	app.show_result_modal()
+	await get_tree().create_timer(0.4).timeout
+	_check(_find_button(app, "ACEITAR A DERROTA") != null, "o resultado do torneio perdedor oferece ACEITAR A DERROTA")
+	_press_button(app, "ACEITAR A DERROTA")
+	await get_tree().create_timer(0.5).timeout
+	_check(_find_by_method(app, "set_entry") != null, "a TELA DE QUEDA abre depois da derrota no torneio")
+	_check(_find_label_contains(app, "A QUEDA DE") != null, "a tela de queda nomeia o gladiador")
+	_check(_find_label_contains(app, "KD") != null, "a tela de queda mostra o KD")
+	_check(_find_label_contains(app, "Torneios vencidos") != null, "a tela de queda mostra os TORNEIOS VENCIDOS")
+	_check(_find_label_contains(app, carrasco_nome) != null, "a tela de queda mostra o CARRASCO ('%s')" % carrasco_nome)
+	_check(_find_label_contains(app, "MURAL DOS CAÍDOS") != null, "a tela de queda traz o MURAL DOS CAÍDOS")
+	_check(not GameState.has_save(), "o SAVE DA CAMPANHA foi APAGADO na derrota do torneio")
+	_check(FallenWallScript.count() >= 1, "o Mural dos caídos ganhou registro (%d)" % FallenWallScript.count())
+	_check(GameState.player == null, "o personagem foi apagado (player nulo)")
+	# MURAL com pelo menos 1 caído, aberto como modal (mesmo componente da cidade).
+	app.show_mural()
+	await get_tree().create_timer(0.4).timeout
+	_check(_find_by_method(app, "_entry_card") != null, "o MURAL DOS CAÍDOS abre como modal com a lista")
+	_check(_find_label_contains(app, carrasco_nome) != null, "o Mural lista o caído com o carrasco")
+	FallenWallScript.clear()
 	GameState.clear_save()
 	_finish()
 

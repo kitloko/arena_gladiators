@@ -164,6 +164,10 @@ func build_interface() -> void:
 	root.add_child(make_label("Os dois frente a frente. Estude o adversário antes de entrar na arena.", 12, DIM, HORIZONTAL_ALIGNMENT_CENTER))
 	if notice != "":
 		root.add_child(make_label(notice, 14, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	# §6.1 PERMADEATH: o aviso vermelho aparece em QUALQUER rodada do torneio
+	# (inclusive a primeira) — perder aqui apaga o personagem.
+	if GameState.is_tournament():
+		root.add_child(_make_permadeath_banner())
 	# COMBATE FINAL (etapa 6, correção 4): a rodada final do torneio é marcada de
 	# forma inconfundível, com o nome do boss em destaque.
 	if GameState.is_final_tournament_round():
@@ -318,6 +322,30 @@ func _make_final_banner() -> PanelContainer:
 	box.add_child(make_label("COMBATE FINAL — %s" % GameState.final_boss_name(), 22, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
 	box.add_child(make_label("GRAU DE DIFICULDADE  %s  (%d/5)  — define a tabela de drop" % [BossDropTable.stars(GameState.current_boss_grade()), GameState.current_boss_grade()], 15, Color("f5c451"), HORIZONTAL_ALIGNMENT_CENTER))
 	box.add_child(make_label("A última luta do torneio. Só aqui o troféu do campeão aparece.", 12, Color("e08a8a"), HORIZONTAL_ALIGNMENT_CENTER))
+	return panel
+
+## Aviso vermelho do PERMADEATH (§6.1) mostrado na apresentação de QUALQUER
+## rodada do torneio. Compacto de propósito: a apresentação não tem rolagem.
+func _make_permadeath_banner() -> PanelContainer:
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("3a0f16")
+	style.border_color = RED
+	style.set_border_width_all(2)
+	style.corner_radius_top_left = 8
+	style.corner_radius_top_right = 8
+	style.corner_radius_bottom_left = 8
+	style.corner_radius_bottom_right = 8
+	style.content_margin_left = 8
+	style.content_margin_right = 8
+	style.content_margin_top = 4
+	style.content_margin_bottom = 4
+	panel.add_theme_stylebox_override("panel", style)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 0)
+	panel.add_child(box)
+	box.add_child(make_label("MORTE NO TORNEIO = PERSONAGEM APAGADO", 14, RED, HORIZONTAL_ALIGNMENT_CENTER))
+	box.add_child(make_label("Perder aqui apaga o seu gladiador. A Arena Livre não tem morte permanente.", 11, Color("e08a8a"), HORIZONTAL_ALIGNMENT_CENTER))
 	return panel
 
 func _enemy_title() -> String:
