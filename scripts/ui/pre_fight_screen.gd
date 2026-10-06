@@ -37,6 +37,8 @@ var player_power: int = 0
 var enemy_power: int = 0
 var player_taunt: String = ""
 var enemy_taunt: String = ""
+## Aviso opcional do roteador (ex.: bloqueio da cidade no torneio, correção 1b).
+var notice: String = ""
 ## APOSTA (item 5): valor que o jogador pretende apostar no próprio combate. A
 ## aposta só é FECHADA ao entrar na arena (aí o ouro sai e a odd congela).
 var bet_amount: int = 0
@@ -160,6 +162,12 @@ func build_interface() -> void:
 	margin.add_child(root)
 	root.add_child(make_label("APRESENTAÇÃO — %s" % GameState.current_stage_name(), 21, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
 	root.add_child(make_label("Os dois frente a frente. Estude o adversário antes de entrar na arena.", 12, DIM, HORIZONTAL_ALIGNMENT_CENTER))
+	if notice != "":
+		root.add_child(make_label(notice, 14, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	# COMBATE FINAL (etapa 6, correção 4): a rodada final do torneio é marcada de
+	# forma inconfundível, com o nome do boss em destaque.
+	if GameState.is_final_tournament_round():
+		root.add_child(_make_final_banner())
 	# Frente a frente: card de cada lutador com um VS no meio.
 	var versus := HBoxContainer.new()
 	versus.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -283,6 +291,30 @@ func _speech_box(caption: String, line: String, color: Color) -> PanelContainer:
 	panel.add_child(box)
 	box.add_child(make_label(caption, 11, color, HORIZONTAL_ALIGNMENT_CENTER))
 	box.add_child(_wrapped_label("\"%s\"" % line, 13, INK, 300))
+	return panel
+
+## Faixa do COMBATE FINAL: fundo vermelho escuro, contorno dourado e o nome do
+## boss em destaque (etapa 6, correção 4). A MESMA marca aparece na arena.
+func _make_final_banner() -> PanelContainer:
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("3a1220")
+	style.border_color = GOLD
+	style.set_border_width_all(2)
+	style.corner_radius_top_left = 10
+	style.corner_radius_top_right = 10
+	style.corner_radius_bottom_left = 10
+	style.corner_radius_bottom_right = 10
+	style.content_margin_left = 16
+	style.content_margin_right = 16
+	style.content_margin_top = 8
+	style.content_margin_bottom = 8
+	panel.add_theme_stylebox_override("panel", style)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 2)
+	panel.add_child(box)
+	box.add_child(make_label("COMBATE FINAL — %s" % GameState.final_boss_name(), 22, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	box.add_child(make_label("A última luta do torneio. Só aqui o troféu do campeão aparece.", 12, Color("e08a8a"), HORIZONTAL_ALIGNMENT_CENTER))
 	return panel
 
 func _enemy_title() -> String:

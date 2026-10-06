@@ -202,7 +202,7 @@ Hoje já é procedural: **luta/inimigo** (escala por nível/tier), **item gerado
 
 | Etapa | Conteúdo | Critério de aceite |
 | --- | --- | --- |
-| **6** | §3.1 bug do torneio/pontos + §3.2 GANHOU/PERDEU + resumo em modal | reproduzir o bug antes e depois na QA (o torneio **não** reinicia ao distribuir pontos); cartaz antes do resumo |
+| **6** ✅ | §3.1 bug do torneio/pontos + §3.2 GANHOU/PERDEU + resumo em modal | reproduzir o bug antes e depois na QA (o torneio **não** reinicia ao distribuir pontos); cartaz antes do resumo |
 | **7** | Gerador de arte + **cidades e arenas** geradas (§4.1/4.2) | `gen_assets.gd` roda headless e produz os PNGs; cidade com imagem de verdade na QA; 3 cenários por faixa |
 | **8** | Gladiador em camadas + **arma na mão** + armaduras no corpo + efeitos + projéteis | QA com print do gladiador equipado e do ataque com arma e projétil |
 | **9** | Itens: pool maior + **variações únicas** + tiers §5.3 | teste de tabela de drop por grau (seed fixa) + variações fora da loja |
@@ -214,13 +214,49 @@ Depois da 11: rebalanceamento final remedido (a economia e a curva são novament
 
 ---
 
-## 9. Decisões que eu preciso de você
+## 9. Decisões
 
-1. **Arte**: aceitar arte **gerada por código** (§4.1, com o limite honesto) — **recomendo começar por ela**,
-   porque destrava tudo e é licença nossa; se depois você quiser pintura, trocamos o gerador mantendo o resto.
-2. **Permadeath só no torneio** e **arena livre sem morte permanente** — recomendo firme.
-3. **Save apagado de verdade** na morte do torneio, com o **Mural dos caídos** guardando a estatística —
-   confirma? (item irreversível)
-4. **Quantas cidades**: 3 por faixa de rank (recomendo) ou uma para cada torneio (5).
-5. **Variações únicas**: 8 no total (recomendo) ou uma por boss (18).
-6. **O "item por rodada" da 1.6 sai de vez** — só o boss final dropa (você já pediu; confirmo na volta).
+1. **Arte**: ✅ **decidido (06/10)** — **híbrido**: você gera **folhas (atlas) por família** com o seu gerador e o
+   meu código **corta, tinge e compõe** (variação infinita por semente). O contrato de corte e o **inventário
+   completo das ~48 folhas com prompts prontos** estão em **`docs/ARTE.md`**. Começo por 6 folhas
+   (`A1` herói espadachim, `A13`/`A14` bosses, `B1` cidade, `B4` arena, `F1`/`F2` painéis e botões) para provar
+   o pipeline ponta a ponta; enquanto elas não chegam, eu gero **placeholders por código** com o mesmo contrato
+   (a sua folha depois substitui o placeholder sem trocar uma linha do jogo).
+2. **Permadeath**: ✅ **APROVADO por você (06/10 — "Sim, permadeath")**. Implementação na etapa 11, com as
+   travas do §6: aviso vermelho + confirmação antes de entrar no torneio, derrota apaga o save, **arena livre
+   sem morte permanente** (recomendação minha, mantida) e **Mural dos caídos** guardando a estatística.
+3. **Save apagado de verdade** na morte do torneio — ✅ confirmado junto do item 2.
+4. **Quantas cidades**: 3 por faixa de rank (`B1`/`B2`/`B3` no `ARTE.md`) — pode aumentar depois, é só folha nova.
+5. **Variações únicas**: 8 no total (folha `C14`), um conjunto por torneio.
+6. **O "item por rodada" da 1.6 sai de vez** — já implementado na etapa 6: só o boss final dropa.
+
+---
+
+## 10. Resultado da etapa 6 — medido (06/10/2026)
+
+**As quatro correções, como ficaram:**
+
+1. **Bug do torneio (pontos → cidade → torneio reiniciado): corrigido com três travas.**
+   `DISTRIBUIR PONTOS` agora abre `scripts/ui/points_panel.gd` — um **modal "só pontos" por cima do resultado**,
+   com o botão **VOLTAR AO RESULTADO** (não troca de tela). `show_city()` **recusa** abrir durante o torneio e
+   redireciona para a rodada com o aviso *"Você está no torneio — Combate x/4"*. `start_tournament()` **recusa
+   reiniciar** um torneio em andamento; abandonar exige **ABANDONAR TORNEIO** → **CONFIRMAR ABANDONO**, e o
+   abandono **conta derrota no KD**.
+   **Prova (teste de fluxo):** vence a rodada 2/4 com pontos pendentes → distribui os pontos no modal → *"DEPOIS
+   de distribuir, o torneio CONTINUA na MESMA rodada"* (rodada inalterada); `show_city()` → *"a CIDADE não abre
+   durante o torneio"*; abandono → *"registra a derrota no KD (0 → 1)"*.
+2. **Cartaz antes do resumo:** caindo o último golpe a arena mostra **`VOCÊ VENCEU`** / **`VOCÊ PERDEU`** com
+   *"<adversário> — N rodadas"* e o botão **CONTINUAR**; **só o CONTINUAR** abre o resumo, e o resumo agora é um
+   **modal sobre a arena** (`show_result_modal`) — a arena continua na árvore de nós (é o que prova que o resumo
+   virou modal, e não uma tela cheia).
+3. **Item só do boss final:** as rodadas 1..n−1 passam a dar **apenas ouro + XP**. Medido no nível 5, com ouro
+   base 56/luta e público ×1,0: ouro **inalterado** (224 / 360 / 536 nos três torneios) e itens caem de **5 para
+   1** por torneio. O `gladius_magnus` só cai da rodada final. A **Arena Livre ficou intocada**.
+4. **COMBATE FINAL evidente:** faixa vermelho/dourada **`COMBATE FINAL — <boss>`** na **apresentação** e na
+   **arena**, com a linha *"Só aqui o troféu do campeão aparece."* e o aviso no log de combate.
+   (O **sorteio** do boss final e a **tabela de drop por dificuldade** são a etapa 10 — aqui só a marcação, como
+   planejado.)
+
+**Testes:** `run_systems_test` PASS (3 regras novas: cidade bloqueada, `start_tournament` recusando, item só na
+final), `flow_smoke` PASS (cartaz antes do resumo, cenário do bug, bloqueio da cidade, abandono, COMBATE FINAL) e
+`run_balance_test` PASS **sem nenhum critério afrouxado**.

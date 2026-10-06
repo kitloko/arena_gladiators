@@ -75,6 +75,10 @@ var action_row: GridContainer
 var _action_buttons: Dictionary = {}
 var _items: Array = []
 var _inspector: Control = null
+## Cartaz de fim de luta (etapa 6, correção 2a): "VOCÊ VENCEU"/"VOCÊ PERDEU"
+## mostrado ANTES do resumo; só o CONTINUAR libera o sinal fight_finished.
+var _end_banner: Control = null
+var _banner_result = null
 
 ## --- Camada visual (sprites) ---
 const SPRITE_BASE := "res://assets/sprites/"
@@ -135,6 +139,9 @@ func build_interface() -> void:
 	root.add_theme_constant_override("separation", 7)
 	margin.add_child(root)
 	root.add_child(make_label("ARENA DOS GLADIADORES", 24, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	# COMBATE FINAL (etapa 6, correção 4): faixa inconfundível na rodada final.
+	if GameState.is_final_tournament_round():
+		root.add_child(_make_final_banner())
 	status_label = make_label("", 15, Color("cdbfd5"), HORIZONTAL_ALIGNMENT_CENTER)
 	root.add_child(status_label)
 	# Barra da felicidade do público (item H): 0 a 100%, SEMPRE visível no topo.
@@ -232,6 +239,9 @@ func start_new_fight() -> void:
 	enemy_pos = 1 + distance
 	_build_action_buttons()
 	log_lines = ["[color=#f5c451]%s — %s entra na arena! (distância %d)[/color]" % [GameState.current_stage_name(), foe.display_name, distance]]
+	# COMBATE FINAL (correção 4): o log avisa que só aqui o troféu aparece.
+	if GameState.is_final_tournament_round():
+		log_lines.append("[color=#ffd54a]COMBATE FINAL — só aqui o troféu do campeão aparece![/color]")
 	set_actions_enabled(true)
 	_apply_action_states()
 	DebugLog.info("Luta iniciada: %s contra %s (arena %d/%d)." % [GameState.player.display_name, foe.display_name, GameState.arena_number(), GameState.stage_total()])
@@ -788,7 +798,7 @@ func win_fight() -> void:
 			result.loot.append(entry)
 	GameState.persist_if_free()
 	DebugLog.info("Vitória na arena %d/%d." % [GameState.arena_number(), GameState.stage_total()])
-	fight_finished.emit(result)
+	_show_end_banner(result)
 
 func lose_fight() -> void:
 	fight_active = false
@@ -808,7 +818,105 @@ func lose_fight() -> void:
 	result.prize = int(outcome.get("kept", 0))
 	GameState.persist_if_free()
 	DebugLog.info("Derrota. Torneio perdido: %s." % result.campaign_lost)
-	fight_finished.emit(result)
+	_show_end_banner(result)
+
+## Cartaz de fim de luta (etapa 6, correção 2a): "VOCÊ VENCEU"/"VOCÊ PERDEU"
+## GRANDE, com o nome do adversário e o número de rodadas, mais o botão CONTINUAR.
+## Nada de trocar de tela no mesmo quadro: o sinal fight_finished só sai quando o
+## jogador clica CONTINUAR (aí o app abre o resumo em modal por cima da arena).
+func _show_end_banner(result) -> void:
+	_banner_result = result
+	if _end_banner != null:
+		_end_banner.queue_free()
+	var overlay := Control.new()
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(overlay)
+	_end_banner = overlay
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.72)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+	var victory: bool = bool(result.victory)
+	var accent := GOLD if victory else RED
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _banner_style(accent))
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.custom_minimum_size = Vector2(620, 0)
+	box.add_theme_constant_override("separation", 12)
+	panel.add_child(box)
+	var big := make_label("VOCÊ VENCEU" if victory else "VOCÊ PERDEU", 60, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	big.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
+	big.add_theme_constant_override("shadow_offset_x", 2)
+	big.add_theme_constant_override("shadow_offset_y", 2)
+	box.add_child(big)
+	var opponent := str(result.opponent_name)
+	if opponent == "":
+		opponent = "o oponente"
+	box.add_child(make_label("%s — %d rodadas" % [opponent, int(result.rounds)], 20, INK, HORIZONTAL_ALIGNMENT_CENTER))
+	# Na rodada final, o cartaz reforça o COMBATE FINAL (correção 4).
+	if GameState.is_final_tournament_round():
+		box.add_child(make_label("COMBATE FINAL — %s" % GameState.final_boss_name(), 16, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	var cont := Button.new()
+	cont.text = "CONTINUAR"
+	cont.custom_minimum_size = Vector2(0, 56)
+	cont.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cont.add_theme_font_size_override("font_size", 20)
+	cont.add_theme_color_override("font_color", Color("1a1420"))
+	cont.add_theme_stylebox_override("normal", panel_style(GREEN if victory else Color("d9a45b"), 10))
+	cont.add_theme_stylebox_override("hover", panel_style((GREEN if victory else Color("d9a45b")).lightened(0.12), 10))
+	cont.pressed.connect(_confirm_end_banner)
+	box.add_child(cont)
+
+## CONTINUAR do cartaz: fecha o cartaz e só AGORA libera o resultado para o modal.
+func _confirm_end_banner() -> void:
+	if _end_banner != null:
+		_end_banner.queue_free()
+		_end_banner = null
+	fight_finished.emit(_banner_result)
+
+func _banner_style(border: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("1d1726")
+	style.border_color = border
+	style.set_border_width_all(3)
+	style.corner_radius_top_left = 14
+	style.corner_radius_top_right = 14
+	style.corner_radius_bottom_left = 14
+	style.corner_radius_bottom_right = 14
+	style.content_margin_left = 40
+	style.content_margin_right = 40
+	style.content_margin_top = 28
+	style.content_margin_bottom = 28
+	return style
+
+## Faixa do COMBATE FINAL na arena (etapa 6, correção 4): fundo vermelho escuro,
+## contorno dourado e o nome do boss em destaque.
+func _make_final_banner() -> PanelContainer:
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("3a1220")
+	style.border_color = GOLD
+	style.set_border_width_all(2)
+	style.corner_radius_top_left = 10
+	style.corner_radius_top_right = 10
+	style.corner_radius_bottom_left = 10
+	style.corner_radius_bottom_right = 10
+	style.content_margin_left = 14
+	style.content_margin_right = 14
+	style.content_margin_top = 6
+	style.content_margin_bottom = 6
+	panel.add_theme_stylebox_override("panel", style)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 1)
+	panel.add_child(box)
+	box.add_child(make_label("COMBATE FINAL — %s" % GameState.final_boss_name(), 20, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	box.add_child(make_label("A última luta do torneio. Só aqui o troféu do campeão aparece.", 12, Color("e08a8a"), HORIZONTAL_ALIGNMENT_CENTER))
+	return panel
 
 func _fill_result(result, gold_value: int, xp_value: int) -> void:
 	result.hits = _total_hits

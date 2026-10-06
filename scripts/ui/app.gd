@@ -17,6 +17,7 @@ const CharacterScreenScene := preload("res://scenes/character_screen.tscn")
 const EndScreenScene := preload("res://scenes/end_screen.tscn")
 
 var _pending_result
+var _result_modal: Node = null
 
 func _ready() -> void:
 	if GameState.has_save():
@@ -32,6 +33,7 @@ func _notification(what: int) -> void:
 func _clear_screens() -> void:
 	for child in get_children():
 		child.queue_free()
+	_result_modal = null
 
 # --- Criação ------------------------------------------------------------
 
@@ -49,6 +51,11 @@ func _on_creation_confirmed(player_name: String, allocation: Dictionary) -> void
 # --- Cidade (hub) ---------------------------------------------------------
 
 func show_city() -> void:
+	# A CIDADE é proibida durante um torneio (etapa 6, correção 1b): o jogador é
+	# devolvido à rodada em andamento, com o aviso de onde está.
+	if GameState.player != null and not GameState.city_allowed():
+		_redirect_to_tournament(GameState.tournament_notice())
+		return
 	GameState.in_combat = false
 	if GameState.player != null and not GameState.is_tournament():
 		GameState.save_progress()
@@ -60,6 +67,14 @@ func show_city() -> void:
 	screen.shop_requested.connect(show_shop)
 	screen.character_requested.connect(show_character)
 	screen.new_requested.connect(_on_new_gladiator)
+
+## Aviso de bloqueio da cidade: volta para o RESULTADO pendente (se houver) ou
+## para a apresentação da rodada em andamento — nunca recomeça o torneio.
+func _redirect_to_tournament(notice: String) -> void:
+	if _pending_result != null:
+		show_result_modal(notice)
+	else:
+		show_prefight(notice)
 
 func _on_new_gladiator() -> void:
 	GameState.clear_save()
@@ -89,13 +104,15 @@ func show_character() -> void:
 ## GameState.current_enemy e mostra a tela de apresentação antes de CADA luta
 ## (Arena Livre e torneio). O combate só começa quando o jogador clica em
 ## ENTRAR NA ARENA (sinal fight_started → show_arena).
-func show_prefight() -> void:
+## `notice` (opcional) é o aviso de bloqueio do torneio (correção 1b).
+func show_prefight(notice: String = "") -> void:
 	GameState.in_combat = false
 	# Cada luta tem a SUA aposta: zera a anterior antes de apostar de novo.
 	GameState.reset_bet()
 	GameState.current_enemy = GameState.build_current_foe()
 	_clear_screens()
 	var screen := PreFightScreenScene.instantiate()
+	screen.set("notice", notice)
 	add_child(screen)
 	screen.fight_started.connect(show_arena)
 
@@ -109,15 +126,25 @@ func show_arena() -> void:
 
 func _on_fight_finished(result) -> void:
 	_pending_result = result
-	show_result()
+	# A arena já mostrou o cartaz GANHOU/PERDEU; o resumo abre por cima dela.
+	show_result_modal()
 
-func show_result() -> void:
+## Resumo da luta como MODAL por cima da arena (correção 2): a arena continua
+## montada por baixo; só as ações do modal trocam de tela.
+func show_result_modal(notice: String = "") -> void:
 	GameState.in_combat = false
-	_clear_screens()
+	if _result_modal != null and is_instance_valid(_result_modal):
+		_result_modal.queue_free()
 	var screen := ResultScreenScene.instantiate()
+	screen.set("notice", notice)
 	add_child(screen)
+	_result_modal = screen
 	screen.set_result(_pending_result)
 	screen.action_requested.connect(_on_result_action)
+
+## Compatibilidade: quem já chamava show_result() passa a abrir o modal.
+func show_result() -> void:
+	show_result_modal()
 
 func _on_result_action(action: String) -> void:
 	match action:
@@ -132,6 +159,12 @@ func _on_result_action(action: String) -> void:
 			show_prefight()
 		"camp":
 			GameState.save_progress()
+			show_city()
+		"abandon":
+			# ABANDONAR TORNEIO (correção 1c): registra a derrota no KD e volta à
+			# cidade (agora permitida, porque o modo voltou a ser Arena Livre).
+			_pending_result = null
+			GameState.abandon_tournament()
 			show_city()
 		"end_victory", "end_defeat":
 			GameState.finish_tournament()

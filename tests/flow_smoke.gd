@@ -138,8 +138,16 @@ func _run_test() -> void:
 	var base_rewards: Dictionary = EconomySystemScript.fight_rewards(level_before_kill)
 	arena.player_action("golpe")
 	await get_tree().create_timer(0.6).timeout
+	# Correção 2: primeiro o CARTAZ VOCÊ VENCEU, e só o CONTINUAR abre o resumo.
+	_check(_find_label_contains(app, "VOCÊ VENCEU") != null, "o cartaz VOCÊ VENCEU aparece ANTES do resumo")
+	_check(_find_by_method(app, "set_result") == null, "o resumo NÃO abre sozinho (nada de trocar de tela no mesmo quadro)")
+	var continuar = _find_button(app, "CONTINUAR")
+	_check(continuar != null, "o cartaz oferece o botão CONTINUAR")
+	if continuar != null:
+		continuar.pressed.emit()
+	await get_tree().create_timer(0.4).timeout
 	var result = _find_by_method(app, "set_result")
-	_check(result != null, "resultado aparece")
+	_check(result != null, "o resumo abre como MODAL depois do CONTINUAR")
 	if result == null:
 		_finish()
 		return
@@ -181,19 +189,27 @@ func _run_test() -> void:
 	var r1: Dictionary = GameState.on_victory(50, 40)
 	_check(bool(r1.tournament) and int(r1.prize) > 0 and not bool(r1.campaign_cleared), "vitória no torneio acumula prêmio")
 	var loot1: Array = r1.get("loot", [])
-	_check(loot1.size() == 1 and GameState.player.bag_items().size() == bag_before + 1, "vencer rodada de torneio dá um item na bolsa")
+	_check(loot1.is_empty() and GameState.player.bag_items().size() == bag_before, "vencer rodada de torneio não-final NÃO dá item — só ouro + XP (regra 3)")
 	_check(GameState.player.health == GameState.player.max_health, "vencer rodada cura para a próxima")
 	GameState.tourney_round = GameState.tournament_round_total() - 1
 	var rfinal: Dictionary = GameState.on_victory(50, 40)
 	_check(bool(rfinal.campaign_cleared) and GameState.player.owns_item("gladius_magnus"), "vencer o Grande Gladiador entrega o item único")
 	_check(GameState.player.gold > gold_before, "prêmio entra no ouro")
 	var loot_final: Array = rfinal.get("loot", [])
-	_check(loot_final.size() == 2, "rodada final mostra o item da rodada mais o item único")
+	_check(loot_final.size() == 1, "a rodada final dá SÓ o item único do boss (não existe mais item por rodada)")
 	_check(GameState.player.equipped_id("weapon") != "gladius_magnus", "item único entra na bolsa em vez de ser equipado à força")
-	_check(GameState.player.bag_items().size() >= 2, "os prêmios de item ficam na bolsa")
+	_check(GameState.player.bag_items().size() >= 1, "o prêmio de item fica na bolsa")
 	# 8) Bolsa: vender, desequipar e reequipar
+	# O único item do torneio (o troféu) é NÃO VENDÁVEL: coloca-se um item comum na
+	# bolsa para exercitar a venda.
+	GameState.add_item_to_bag(ContentRepositoryScript.find_item(ContentRepositoryScript.load_items(), "dagger"))
 	var bag_now: Array[Dictionary] = GameState.player.bag_items()
-	var first_item: Dictionary = bag_now[0]
+	var first_item: Dictionary = {}
+	for entry: Dictionary in bag_now:
+		if EconomySystemScript.is_sellable(entry):
+			first_item = entry
+			break
+	_check(not first_item.is_empty(), "há um item vendável na bolsa para o teste de venda")
 	var first_id := str(first_item.get("id", ""))
 	var gold_pre_sale: int = GameState.player.gold
 	var sale: Dictionary = GameState.sell_item(first_id)
@@ -341,6 +357,88 @@ func _run_test() -> void:
 		var fake_result := {"trait_notes": ["Frágil: +25% de dano"], "hit": true, "dodged": false, "blocked": false, "blocked_amount": 0, "entered": 1, "critical": false, "health_damage": 1, "armour_damage": 0, "damage": 1, "counter_health_damage": 0}
 		arena_potion._apply_combat_result(GameState.player, GameState.current_enemy, "teste de traço", fake_result)
 		_check(str(arena_potion.log_lines).contains("Frágil: +25% de dano"), "a arena imprime o aviso do traço no log de combate")
+	# 15) BUG do torneio (correção 1): distribuir pontos NÃO pode resetar o torneio.
+	# Cenário: jogador no meio do torneio (rodada 2), vence, sobe de nível e recebe
+	# pontos pendentes; distribuir os pontos tem de manter o torneio na MESMA rodada.
+	GameState.player.rank_points = 5000
+	GameState.tourney_round = 1
+	GameState.player.pending_points += 2
+	var bug_arena = _find_by_method(app, "start_new_fight")
+	_check(bug_arena != null and GameState.is_tournament(), "cenário montado: o jogador está no torneio (arena ativa)")
+	if bug_arena != null:
+		bug_arena.distance = 1
+		bug_arena.player_pos = 1
+		bug_arena.enemy_pos = 2
+		GameState.player.health = GameState.player.max_health
+		GameState.player.armour = GameState.player.max_armour
+		GameState.current_enemy.health = 1
+		GameState.current_enemy.base_agility = 0
+		GameState.current_enemy.base_defence = 0
+		GameState.current_enemy.recompute_derived()
+		bug_arena.player_action("golpe")
+		await get_tree().create_timer(0.6).timeout
+		_check(_find_button(app, "CONTINUAR") != null, "torneio: o cartaz de fim de luta aparece antes do resumo")
+		_press_button(app, "CONTINUAR")
+		await get_tree().create_timer(0.4).timeout
+	_check(_find_by_method(app, "set_result") != null and GameState.is_tournament(), "torneio: o resumo abre em MODAL por cima da arena")
+	var round_before_bug: int = GameState.tourney_round
+	_check(round_before_bug == 2, "o torneio está na rodada 2/4 antes de distribuir os pontos (medido %d)" % round_before_bug)
+	var distribuir = _find_button_contains(app, "DISTRIBUIR PONTOS")
+	_check(distribuir != null, "o resultado do torneio oferece DISTRIBUIR PONTOS")
+	if distribuir != null:
+		distribuir.pressed.emit()
+		await get_tree().create_timer(0.3).timeout
+		var points_panel = _find_by_method(app, "spend_point")
+		_check(points_panel != null, "os pontos abrem em modo 'só pontos' (painel modal)")
+		_check(GameState.is_tournament() and GameState.tourney_round == round_before_bug, "abrir os pontos NÃO joga na cidade nem reseta o torneio")
+		var pending_antes: int = GameState.player.pending_points
+		if points_panel != null:
+			var guard := 0
+			while GameState.player.pending_points > 0 and guard < 20:
+				points_panel.spend_point("strength")
+				guard += 1
+			await get_tree().create_timer(0.2).timeout
+		_check(pending_antes > 0 and GameState.player.pending_points == 0, "os pontos foram distribuídos (%d → %d)" % [pending_antes, GameState.player.pending_points])
+		_check(GameState.player.base_strength > 0, "os pontos foram para o atributo escolhido (STR %d)" % GameState.player.base_strength)
+		_check(GameState.is_tournament() and GameState.tourney_round == round_before_bug, "DEPOIS de distribuir, o torneio CONTINUA na MESMA rodada (%d/4)" % (GameState.tourney_round + 1))
+		_press_button_contains(app, "VOLTAR AO RESULTADO")
+		await get_tree().create_timer(0.3).timeout
+		_check(_find_by_method(app, "set_result") != null and GameState.is_tournament(), "fechar os pontos volta ao RESULTADO da rodada (nunca à cidade)")
+	# 15b) Correção 1b: a CIDADE é BARRADA no meio do torneio.
+	app.show_city()
+	await get_tree().create_timer(0.4).timeout
+	_check(_find_label_contains(app, "CIDADE") == null, "a CIDADE não abre durante o torneio (regra 1b)")
+	_check(_find_label_contains(app, "Você está no torneio") != null, "o bloqueio avisa 'Você está no torneio — Combate x/4'")
+	_check(GameState.is_tournament() and GameState.tourney_round == round_before_bug, "o torneio continua intacto depois do bloqueio da cidade")
+	# 15c) Correção 1c: ABANDONAR TORNEIO é explícito, pede confirmação e conta a derrota no KD.
+	var losses_before_abandon: int = GameState.player.losses
+	var abandon_btn = _find_button_contains(app, "ABANDONAR TORNEIO")
+	_check(abandon_btn != null, "o resultado do torneio oferece ABANDONAR TORNEIO")
+	if abandon_btn != null:
+		abandon_btn.pressed.emit()
+		await get_tree().create_timer(0.3).timeout
+		_check(_find_button_contains(app, "CONFIRMAR ABANDONO") != null, "abandonar pede CONFIRMAÇÃO antes de sair")
+		_press_button_contains(app, "CONFIRMAR ABANDONO")
+		await get_tree().create_timer(0.5).timeout
+	_check(GameState.player.losses == losses_before_abandon + 1, "abandonar REGISTRA A DERROTA no KD (%d → %d)" % [losses_before_abandon, GameState.player.losses])
+	_check(not GameState.is_tournament(), "abandonar encerra o torneio (volta ao modo Arena Livre)")
+	_check(_find_label_contains(app, "CIDADE") != null, "depois de abandonar, o jogador volta à CIDADE")
+	# 16) Correção 4: a RODADA FINAL é marcada de forma inconfundível como COMBATE FINAL.
+	GameState.player.rank_points = 5000
+	_press_button_contains(app, "Grande Torneio")
+	await get_tree().create_timer(0.4).timeout
+	_check(GameState.is_tournament(), "novo torneio iniciado a partir da cidade")
+	GameState.tourney_round = GameState.tournament_round_total() - 1
+	app.show_prefight()
+	await get_tree().create_timer(0.4).timeout
+	_check(_find_label_contains(app, "COMBATE FINAL") != null, "a APRESENTAÇÃO marca COMBATE FINAL na rodada final")
+	var boss_name: String = GameState.final_boss_name()
+	_check(boss_name != "" and _find_label_contains(app, boss_name) != null, "a faixa COMBATE FINAL nomeia o boss ('%s')" % boss_name)
+	_check(_find_label_contains(app, "Só aqui o troféu") != null, "a apresentação avisa que só aqui o troféu aparece")
+	_press_button(app, "ENTRAR NA ARENA")
+	await get_tree().create_timer(0.5).timeout
+	_check(_find_label_contains(app, "COMBATE FINAL") != null, "a ARENA marca COMBATE FINAL na rodada final")
+	_check(_find_label_contains(app, "só aqui o troféu") != null, "o log da arena avisa que só na final o troféu aparece")
 	GameState.finish_tournament()
 	GameState.clear_save()
 	_finish()

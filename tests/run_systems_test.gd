@@ -91,6 +91,10 @@ func _initialize() -> void:
 	_test_blacksmith_upgrade_and_cap()
 	_test_trainer_xp_and_cap()
 	_test_doctor_cures_and_charges()
+	# --- ETAPA 6 (continuação): bug do torneio e item só do boss final ---
+	_test_tournament_blocks_city_and_notice()
+	_test_tournament_start_refuses_restart_and_abandon()
+	_test_tournament_item_only_from_final()
 	if _failures == 0:
 		print("PASS: todos os testes de regras passaram.")
 		quit(0)
@@ -1537,4 +1541,75 @@ func _test_trait_power_index_and_betting() -> void:
 	var odd_plain: float = BettingSystemScript.odd_for(100, PresentationSystemScript.power_index(plain))
 	var odd_beast: float = BettingSystemScript.odd_for(100, PresentationSystemScript.power_index(beast))
 	_check(odd_beast >= odd_plain, "inimigo com traço forte paga odd maior (%.3f ≥ %.3f)" % [odd_beast, odd_plain])
+
+# ===========================================================================
+# ETAPA 6 (continuação) — BUG do torneio (correção 1) e item só do boss final (3)
+# ===========================================================================
+
+## Instância limpa de GameState COM o conteúdo de torneios carregado (start_tournament
+## precisa de _tiers, que só é preenchido no _ready do autoload).
+func _tournament_game_state(player):
+	var gs = GameStateScript.new()
+	gs.player = player
+	gs.mode = "free"
+	gs._tiers = ContentRepositoryScript.load_tournaments()
+	gs._stages = ContentRepositoryScript.load_campaign()
+	return gs
+
+## Correção 1b: durante um torneio a CIDADE é proibida e o aviso cita a rodada.
+func _test_tournament_blocks_city_and_notice() -> void:
+	var player = _fighter({"id": "cityblock", "level": 3, "rank_points": 200, "base_vitality": 10, "base_strength": 12})
+	var gs = _tournament_game_state(player)
+	_check(gs.city_allowed() and gs.tournament_notice() == "", "fora do torneio a cidade é permitida e não há aviso de bloqueio")
+	_check(gs.start_tournament("t1"), "o Torneio Menor inicia quando não há outro em andamento")
+	_check(gs.is_tournament() and not gs.city_allowed(), "durante o torneio a CIDADE fica PROIBIDA (regra 1b)")
+	var notice1: String = gs.tournament_notice()
+	_check(notice1.contains("torneio") and notice1.contains("Combate 1/"), "o aviso do bloqueio cita o torneio e a rodada ('%s')" % notice1)
+	gs.tourney_round = 1
+	_check(gs.tournament_notice().contains("Combate 2/"), "o aviso acompanha a rodada em andamento ('%s')" % gs.tournament_notice())
+	gs.free()
+
+## Correção 1c: start_tournament RECUSA reiniciar; abandonar é ação explícita que
+## registra a DERROTA no KD.
+func _test_tournament_start_refuses_restart_and_abandon() -> void:
+	var player = _fighter({"id": "forfeit", "level": 3, "rank_points": 900, "base_vitality": 10, "base_strength": 12})
+	var gs = _tournament_game_state(player)
+	_check(gs.start_tournament("t1"), "torneio inicia para o teste de reinício")
+	gs.tourney_round = 1
+	var tier_before: String = gs.tourney_tier_id
+	var round_before: int = gs.tourney_round
+	var gold_before: int = 0
+	_check(not gs.start_tournament("t2"), "start_tournament RECUSA reiniciar um torneio em andamento (regra 1c)")
+	_check(gs.tourney_tier_id == tier_before and gs.tourney_round == round_before, "o torneio em andamento continua intacto (tier '%s', rodada %d)" % [gs.tourney_tier_id, gs.tourney_round])
+	var losses_before: int = player.losses
+	var abandon: Dictionary = gs.abandon_tournament()
+	_check(bool(abandon.get("ok", false)), "ABANDONAR TORNEIO é uma ação explícita (retorna ok)")
+	_check(player.losses == losses_before + 1, "abandonar REGISTRA A DERROTA no KD (%d → %d)" % [losses_before, player.losses])
+	_check(not gs.is_tournament() and gs.mode == "free", "abandonar encerra o torneio e volta ao modo Arena Livre")
+	_check(gs.city_allowed(), "depois de abandonar, a cidade volta a ser permitida")
+	_check(gs.tourney_prize == 0, "o prêmio acumulado se perde ao abandonar (era %d)" % gold_before)
+	gs.free()
+
+## Correção 3: rodadas 1..n-1 dão SÓ ouro + XP; o item cai exclusivamente da final.
+func _test_tournament_item_only_from_final() -> void:
+	var player = _fighter({"id": "loot", "level": 6, "rank_points": 900, "gold": 0, "base_vitality": 12, "base_strength": 14})
+	var gs = _tournament_game_state(player)
+	_check(gs.start_tournament("t2"), "torneio Maior inicia para o teste de loot")
+	var total: int = gs.tournament_round_total()
+	_check(total >= 2, "o torneio tem pelo menos 2 rodadas (tem %d)" % total)
+	var bag_before: int = player.bag_items().size()
+	for round_index in total - 1:
+		var r: Dictionary = gs.on_victory(50, 40)
+		_check(bool(r.get("tournament", false)) and not bool(r.get("campaign_cleared", false)), "rodada %d/%d vencida (ainda não é a final)" % [round_index + 1, total])
+		_check((r.get("loot", []) as Array).is_empty(), "rodada %d/%d NÃO dá item — só ouro + XP (regra 3)" % [round_index + 1, total])
+		_check(int(r.get("prize", 0)) > 0 and int(r.get("experience", 0)) > 0, "rodada %d/%d paga ouro (prêmio %d) e XP (%d)" % [round_index + 1, total, int(r.get("prize", 0)), int(r.get("experience", 0))])
+	_check(gs.is_final_tournament_round(), "chegou à rodada FINAL do torneio")
+	_check(player.bag_items().size() == bag_before, "nenhum item entrou na bolsa nas rodadas 1..n-1 (%d itens)" % player.bag_items().size())
+	var rfinal: Dictionary = gs.on_victory(50, 40)
+	_check(bool(rfinal.get("campaign_cleared", false)), "a rodada final conclui o torneio")
+	var loot_final: Array = rfinal.get("loot", [])
+	_check(loot_final.size() == 1 and player.owns_item("gladius_magnus"), "o item (Gládio do Grande Gladiador) cai SÓ da rodada final (regra 3)")
+	_check(player.bag_items().size() == bag_before + 1, "exatamente 1 item de torneio na bolsa (%d)" % player.bag_items().size())
+	gs.free()
+
 

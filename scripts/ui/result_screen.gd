@@ -10,6 +10,7 @@ signal action_requested(action: String)
 
 const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
 const ItemGeneratorScript := preload("res://scripts/systems/item_generator.gd")
+const PointsPanelScript := preload("res://scripts/ui/points_panel.gd")
 
 const BACKGROUND := Color("14111c")
 const PANEL := Color("272033")
@@ -26,6 +27,11 @@ var _result
 var _title: Label
 var _body: VBoxContainer
 var _rest_dialog: Control = null
+## Aviso opcional (ex.: "Você está no torneio — Combate 2/4") mostrado no topo.
+var notice: String = ""
+## Painel modal "só pontos" (correção 1a) e diálogo de confirmação do abandono.
+var _points_panel: Control = null
+var _abandon_dialog: Control = null
 ## Contador para dar nome único a cada ficha de prêmio (o QA conta por prefixo).
 var _loot_card_index: int = 0
 
@@ -38,8 +44,10 @@ func set_result(result) -> void:
 
 func _build_interface() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# MODAL: fundo escurecido (não opaco) — a arena continua visível por baixo.
 	var backdrop := ColorRect.new()
-	backdrop.color = BACKGROUND
+	backdrop.color = Color(0, 0, 0, 0.74)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(backdrop)
 	var center := CenterContainer.new()
@@ -49,14 +57,23 @@ func _build_interface() -> void:
 	panel.add_theme_stylebox_override("panel", _panel_style(PANEL, 16, 40))
 	center.add_child(panel)
 	var root := VBoxContainer.new()
-	root.custom_minimum_size = Vector2(620, 0)
-	root.add_theme_constant_override("separation", 16)
+	root.custom_minimum_size = Vector2(640, 0)
+	root.add_theme_constant_override("separation", 12)
 	panel.add_child(root)
+	if notice != "":
+		root.add_child(_make_label(notice, 15, Color("f5c451"), HORIZONTAL_ALIGNMENT_CENTER))
 	_title = _make_label("", 32, INK, HORIZONTAL_ALIGNMENT_CENTER)
 	root.add_child(_title)
+	# O corpo rola sozinho quando o resumo passa da altura da caixa modal.
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(0, 360)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(scroll)
 	_body = VBoxContainer.new()
+	_body.custom_minimum_size = Vector2(640, 0)
 	_body.add_theme_constant_override("separation", 14)
-	root.add_child(_body)
+	scroll.add_child(_body)
 
 func _render() -> void:
 	for child in _body.get_children():
@@ -146,17 +163,22 @@ func _render_summary() -> void:
 		for entry: Dictionary in _result.loot:
 			_body.add_child(_make_item_card(entry, _loot_card_index))
 			_loot_card_index += 1
-	# Subir de nível agora dá PONTOS de atributo (4 por nível), distribuídos na
-	# tela de Personagem — em vez do menu fixo de 4 pacotes que existia antes.
+	# Subir de nível agora dá PONTOS de atributo (4 por nível), distribuídos num
+	# painel MODAL "só pontos" por cima do resultado (etapa 6, correção 1a): nada
+	# de trocar de tela — no torneio isso reiniciava a rodada.
 	if GameState.player != null and GameState.player.pending_points > 0:
 		_body.add_child(_make_label("NÍVEL %d — você tem %d ponto(s) de atributo para distribuir." % [GameState.player.level, GameState.player.pending_points], 15, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
-		_add_action_button("DISTRIBUIR PONTOS", ABILITY, "character")
-	if tournament and victory and bool(_result.campaign_cleared):
-		_add_action_button("CONCLUIR TORNEIO", GOLD, "end_victory")
-	elif tournament and victory:
-		_add_action_button("PRÓXIMO COMBATE", GREEN, "next")
-	elif tournament:
-		_add_action_button("ACEITAR A DERROTA", RED, "end_defeat")
+		_add_action_button("DISTRIBUIR PONTOS", ABILITY, "points")
+	if tournament:
+		if victory and bool(_result.campaign_cleared):
+			_add_action_button("CONCLUIR TORNEIO", GOLD, "end_victory")
+		elif victory:
+			_add_action_button("PRÓXIMO COMBATE", GREEN, "next")
+		else:
+			_add_action_button("ACEITAR A DERROTA", RED, "end_defeat")
+		# Sair do torneio é decisão EXPLÍCITA (etapa 6, correção 1c): a cidade está
+		# proibida no meio da disputa, então o abandono tem botão próprio e confirma.
+		_add_action_button("ABANDONAR TORNEIO", Color("8f83b3"), "abandon")
 	elif victory:
 		_add_action_button("IR À LOJA", GOLD, "shop")
 		_add_rest_button()
@@ -172,7 +194,14 @@ func _add_action_button(text_value: String, color: Color, action: String) -> voi
 	button.custom_minimum_size = Vector2(0, 52)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.add_theme_font_size_override("font_size", 16)
-	button.pressed.connect(action_requested.emit.bind(action))
+	# "points"/"abandon" abrem os modais LOCAIS desta tela (não trocam de tela);
+	# o resto é roteado pelo app.gd.
+	if action == "points":
+		button.pressed.connect(_open_points_modal)
+	elif action == "abandon":
+		button.pressed.connect(_open_abandon_dialog)
+	else:
+		button.pressed.connect(action_requested.emit.bind(action))
 	_style_button(button, color)
 	_body.add_child(button)
 
@@ -258,6 +287,78 @@ func _close_rest_dialog() -> void:
 	if _rest_dialog != null:
 		_rest_dialog.queue_free()
 		_rest_dialog = null
+
+# --- Pontos (modal "só pontos") e abandono do torneio ----------------------
+
+## Abre o painel "só pontos" POR CIMA do resultado (correção 1a). Distribuir os
+## pontos NÃO sai desta tela — o torneio continua na mesma rodada.
+func _open_points_modal() -> void:
+	if _points_panel != null:
+		return
+	var panel = PointsPanelScript.new()
+	add_child(panel)
+	_points_panel = panel
+	panel.closed.connect(_on_points_closed)
+
+func _on_points_closed() -> void:
+	if _points_panel != null:
+		_points_panel.queue_free()
+		_points_panel = null
+	# Re-renderiza: sem pontos pendentes, o botão DISTRIBUIR PONTOS some.
+	_render.call_deferred()
+
+## Confirmação explícita do abandono (correção 1c): só o CONFIRMAR emite a ação.
+func _open_abandon_dialog() -> void:
+	if _abandon_dialog != null:
+		return
+	var overlay := Control.new()
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(overlay)
+	_abandon_dialog = overlay
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.72)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _panel_style(PANEL_DARK, 14, 30))
+	center.add_child(panel)
+	var root := VBoxContainer.new()
+	root.custom_minimum_size = Vector2(470, 0)
+	root.add_theme_constant_override("separation", 12)
+	panel.add_child(root)
+	root.add_child(_make_label("ABANDONAR TORNEIO", 26, RED, HORIZONTAL_ALIGNMENT_CENTER))
+	root.add_child(_make_label("Você vai sair do torneio agora. Isto conta como DERROTA no seu KD,\nperde o prêmio acumulado (%d ouro) e devolve você à cidade." % GameState.tournament_prize(), 15, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 10)
+	root.add_child(row)
+	var confirm := Button.new()
+	confirm.text = "CONFIRMAR ABANDONO"
+	confirm.custom_minimum_size = Vector2(230, 46)
+	confirm.add_theme_font_size_override("font_size", 15)
+	confirm.pressed.connect(_confirm_abandon)
+	_style_button(confirm, RED)
+	row.add_child(confirm)
+	var cancel := Button.new()
+	cancel.text = "VOLTAR"
+	cancel.custom_minimum_size = Vector2(130, 46)
+	cancel.add_theme_font_size_override("font_size", 15)
+	cancel.pressed.connect(_close_abandon_dialog)
+	_style_button(cancel, Color("8f83b3"))
+	row.add_child(cancel)
+
+func _confirm_abandon() -> void:
+	_close_abandon_dialog()
+	action_requested.emit("abandon")
+
+func _close_abandon_dialog() -> void:
+	if _abandon_dialog != null:
+		_abandon_dialog.queue_free()
+		_abandon_dialog = null
 
 ## Ficha compacta do item ganho: nome, raridade, nível e bônus.
 func _make_item_card(item: Dictionary, index: int) -> PanelContainer:

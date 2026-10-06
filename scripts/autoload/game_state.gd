@@ -117,6 +117,34 @@ func build_current_foe():
 func is_tournament() -> bool:
 	return mode == "tournament"
 
+## A CIDADE é o hub da Arena Livre, mas fica PROIBIDA no meio de um torneio
+## (etapa 6, correção 1b). O roteador (app.gd) consulta isto antes de trocar de
+## tela; quem tentar ir à cidade é devolvido à rodada em andamento.
+func city_allowed() -> bool:
+	return not is_tournament()
+
+## Aviso mostrado quando o roteador barra a ida à cidade durante o torneio
+## ("Você está no torneio — Combate 2/4"). Vazio fora do torneio.
+func tournament_notice() -> String:
+	if not is_tournament():
+		return ""
+	return "Você está no torneio — Combate %d/%d" % [tourney_round + 1, tournament_round_total()]
+
+## Rodada FINAL do torneio: a que traz o boss e o ÚNICO item do torneio (§5.1).
+func is_final_tournament_round() -> bool:
+	return mode == "tournament" and tourney_round >= tournament_round_total() - 1
+
+## Nome do boss da rodada final (o template que o torneio já usa na última rodada).
+func final_boss_name() -> String:
+	if not is_final_tournament_round():
+		return ""
+	var rounds: Array = tournament_tier().get("rounds", [])
+	if rounds.is_empty():
+		return ""
+	var enemies := ContentRepositoryScript.load_enemies()
+	var template := ContentRepositoryScript.find_enemy(enemies, str(rounds[rounds.size() - 1]))
+	return str(template.get("display_name", "o campeão"))
+
 func tournament_tiers() -> Array[Dictionary]:
 	return _tiers.duplicate()
 
@@ -135,8 +163,12 @@ func tournament_prize() -> int:
 ## Inicia um torneio com o personagem atual (sem loja/descanso; não salva).
 ## BLOQUEIA por RANK (item I): Torneio Menor exige Pedra, Maior exige Aço,
 ## Grande exige Ouro. O motivo do bloqueio é mostrado pela cidade.
+## RECUSA reiniciar um torneio EM ANDAMENTO (etapa 6, correção 1c): abandonar
+## passa a ser uma ação explícita (abandon_tournament), com confirmação na UI.
 func start_tournament(tier_id: String) -> bool:
 	if player == null or _tier_by_id(tier_id).is_empty():
+		return false
+	if is_tournament():
 		return false
 	if not tournament_unlocked(tier_id):
 		return false
@@ -157,6 +189,31 @@ func start_tournament(tier_id: String) -> bool:
 func finish_tournament() -> void:
 	mode = "free"
 	save_progress()
+
+## ABANDONAR TORNEIO (etapa 6, correção 1c): sai do torneio em andamento por
+## decisão explícita do jogador. Conta como DERROTA (entra no KD/rank), perde o
+## prêmio acumulado e volta ao modo Arena Livre. NÃO salva aqui — o roteador
+## salva ao voltar à cidade (agora permitida).
+func abandon_tournament() -> Dictionary:
+	if player == null or not is_tournament():
+		return {}
+	if player != null:
+		player.clear_buffs()
+	var rank_info: Dictionary = apply_rank_result(false)
+	var injury_info: Dictionary = InjurySystemScript.after_fight(player, false, false)
+	var info := {
+		"ok": true, "abandoned": true, "tournament": true,
+		"boss": is_final_tournament_round(), "rank": rank_info,
+		"injury": injury_info, "forfeit": tourney_prize,
+	}
+	tourney_prize = 0
+	tourney_round = 0
+	current_enemy = null
+	mode = "free"
+	if player != null:
+		player.heal_full()
+	player_changed.emit(player)
+	return info
 
 func _tier_index(tier_id: String) -> int:
 	for i in _tiers.size():
@@ -357,14 +414,10 @@ func _on_tournament_victory(gold_reward: int, xp_reward: int, crowd_multiplier: 
 	var xp_gain := int(round(float(maxi(0, xp_reward)) * multiplier))
 	var leveled_up: bool = player.grant_experience(xp_gain)
 	tourney_prize += gold_prize
-	var final_round := is_boss_stage()
-	var tier_index := _tier_index(tourney_tier_id)
-	# Cada rodada vencida entrega UM item (raridade com piso pelo tier). Antes o
-	# torneio dava só ouro e XP: vencer não deixava nada na mão do jogador.
+	var final_round := is_final_tournament_round()
+	# Rodadas 1..n−1: SÓ ouro + XP (o "item por rodada" da versão 1.6 sai, §5.1).
+	# O item do torneio cai EXCLUSIVAMENTE do boss da rodada final.
 	var loot: Array[Dictionary] = []
-	var round_item := _grant_reward_item(int(player.level), tier_index)
-	if not round_item.is_empty():
-		loot.append(round_item)
 	var cleared := false
 	if final_round:
 		# Campeão: leva todo o prêmio + o item único do Grande Gladiador — agora ele
@@ -381,8 +434,9 @@ func _on_tournament_victory(gold_reward: int, xp_reward: int, crowd_multiplier: 
 	player_changed.emit(player)
 	return {"gold": 0, "prize": gold_prize, "experience": xp_gain, "leveled_up": leveled_up, "campaign_cleared": cleared, "tournament": true, "loot": loot}
 
-## Prêmio de rodada: item procedural que vai para a bolsa (não equipa à força) e
-## volta para a tela de resultado exibir a ficha.
+## Prêmio de rodada: item procedural que iria para a bolsa (não equipa à força).
+## DORMENTE nesta etapa (6): o torneio só dá item na rodada final (§5.1). Fica
+## aqui para a TABELA DE DROP por dificuldade da etapa 10, que volta a sorteá-lo.
 func _grant_reward_item(player_level: int, tier_index: int) -> Dictionary:
 	if player == null:
 		return {}
