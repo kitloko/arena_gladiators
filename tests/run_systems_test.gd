@@ -13,6 +13,7 @@ const ItemDataScript := preload("res://scripts/models/item_data.gd")
 const ContentRepositoryScript := preload("res://scripts/repositories/content_repository.gd")
 const SaveSystemScript := preload("res://scripts/systems/save_system.gd")
 const ItemGeneratorScript := preload("res://scripts/systems/item_generator.gd")
+const PresentationSystemScript := preload("res://scripts/systems/presentation_system.gd")
 
 var _failures: int = 0
 
@@ -58,6 +59,9 @@ func _initialize() -> void:
 	_test_rank_arena_bands()
 	_test_rank_crowd_bonus()
 	_test_rank_anti_farm()
+	_test_presentation_power_index()
+	_test_presentation_taunt_draw()
+	_test_enemy_identity_content()
 	if _failures == 0:
 		print("PASS: todos os testes de regras passaram.")
 		quit(0)
@@ -875,4 +879,97 @@ func _test_rank_anti_farm() -> void:
 	for i in 500:
 		climber = int(RankSystemScript.resolve_result(climber, RankSystemScript.opponent_rating(mini(15, 1 + int(i / 34)), 2, false), true).points)
 	_check(climber > farmer_plateau * 2, "quem enfrenta gente mais forte sobe bem mais (%d > 2×%d)" % [climber, farmer_plateau])
+
+# --- Apresentação do adversário (item F) + identidade (item G) --------------
+
+## Índice de Poder: soma ponderada dos 7 atributos + nível. Todos os pesos são
+## positivos, então mais atributo OU mais nível = mais poder, com valor exato.
+func _test_presentation_power_index() -> void:
+	var all_ten = _fighter({"base_strength": 10, "base_attack": 10, "base_defence": 10, "base_agility": 10, "base_vitality": 10, "base_charisma": 10, "base_luck": 10, "level": 1})
+	# 10×2 + 10×1,5×3 + 10×1,0 + 10×0,5 + 10×1,0 + 1×5 = 90 + 5 = 95.
+	_check(PresentationSystemScript.power_index(all_ten) == 95, "Índice de Poder (tudo 10, nível 1) = 95 (medido %d)" % PresentationSystemScript.power_index(all_ten))
+	var weak = _fighter({"base_strength": 4, "base_attack": 4, "base_defence": 4, "base_agility": 4, "base_vitality": 4, "base_charisma": 4, "base_luck": 4, "level": 1})
+	_check(PresentationSystemScript.power_index(all_ten) > PresentationSystemScript.power_index(weak), "mais atributos = mais poder (%d > %d)" % [PresentationSystemScript.power_index(all_ten), PresentationSystemScript.power_index(weak)])
+	var leveled = _fighter({"base_strength": 10, "base_attack": 10, "base_defence": 10, "base_agility": 10, "base_vitality": 10, "base_charisma": 10, "base_luck": 10, "level": 5})
+	_check(PresentationSystemScript.power_index(leveled) > PresentationSystemScript.power_index(all_ten), "nível maior = mais poder (%d > %d)" % [PresentationSystemScript.power_index(leveled), PresentationSystemScript.power_index(all_ten)])
+	_check(PresentationSystemScript.power_index(null) == 0, "Índice de Poder de lutador nulo = 0")
+	# Cada um dos 7 atributos, sozinho, aumenta o índice (monotônico).
+	var every_attribute_grows := true
+	for definition: Dictionary in EconomySystemScript.attribute_definitions():
+		var field := "base_" + str(definition.get("id", ""))
+		var low = _fighter({"base_strength": 5, "base_attack": 5, "base_defence": 5, "base_agility": 5, "base_vitality": 5, "base_charisma": 5, "base_luck": 5})
+		var high = _fighter({"base_strength": 5, "base_attack": 5, "base_defence": 5, "base_agility": 5, "base_vitality": 5, "base_charisma": 5, "base_luck": 5})
+		high.set(field, int(high.get(field)) + 10)
+		high.recompute_derived()
+		if PresentationSystemScript.power_index(high) <= PresentationSystemScript.power_index(low):
+			every_attribute_grows = false
+	_check(every_attribute_grows, "cada um dos 7 atributos aumenta o Índice de Poder")
+
+## Provocações: sorteio uniforme sobre listas válidas (não repete sempre a mesma),
+## fala própria do inimigo quando existe e reserva genérica quando não existe.
+func _test_presentation_taunt_draw() -> void:
+	var sample: Array = ["A", "B", "C"]
+	var seen := {}
+	for i in 300:
+		seen[PresentationSystemScript.random_line(sample)] = true
+	_check(seen.size() >= 2, "sorteio de provocação varia (não repete sempre a mesma: %d distintas)" % seen.size())
+	_check(not seen.has(""), "toda fala sorteada é não vazia e válida")
+	_check(PresentationSystemScript.random_line([]) == "", "lista vazia devolve fala vazia")
+	_check(PresentationSystemScript.random_line(["só uma"]) == "só uma", "lista de 1 item devolve o próprio item")
+	_check(PresentationSystemScript.PLAYER_TAUNTS.size() >= 3 and PresentationSystemScript.player_taunt().strip_edges() != "", "o jogador tem provocações de reserva válidas")
+	# Inimigo com lista própria (template do JSON) sorteia entre as SUAS falas.
+	var enemies := ContentRepositoryScript.load_enemies()
+	var brutus := ContentRepositoryScript.find_enemy(enemies, "brutus")
+	var own: Array = brutus.get("taunts", [])
+	var own_seen := {}
+	for i in 200:
+		var foe = _fighter({"id": "brutus", "display_name": "Brutus"})
+		own_seen[PresentationSystemScript.enemy_taunt(foe)] = true
+	var only_own := true
+	for line: Variant in own_seen.keys():
+		if not own.has(str(line)):
+			only_own = false
+	_check(own_seen.size() >= 2 and only_own, "inimigo com lista própria sorteia entre as SUAS falas (%d distintas)" % own_seen.size())
+	# Inimigo SEM template (procedural da Arena Livre) cai na reserva genérica.
+	var generated = _fighter({"id": "generated_99999", "display_name": "Anônimo"})
+	var fallback_seen := {}
+	for i in 200:
+		fallback_seen[PresentationSystemScript.enemy_taunt(generated)] = true
+	var generic := {}
+	for entry: Variant in PresentationSystemScript.GENERIC_ENEMY_TAUNTS:
+		generic[str(entry)] = true
+	var only_generic := true
+	for line: Variant in fallback_seen.keys():
+		if not generic.has(str(line)):
+			only_generic = false
+	_check(fallback_seen.size() >= 2 and only_generic, "inimigo sem lista própria usa a reserva genérica (%d distintas)" % fallback_seen.size())
+
+## Identidade dos inimigos (item G): todo template tem apelido, descrição (com
+## altura/peso), fraqueza declarada e falas de provocação válidas.
+func _test_enemy_identity_content() -> void:
+	var enemies := ContentRepositoryScript.load_enemies()
+	_check(enemies.size() == 6, "enemies.json continua com 6 inimigos")
+	var ids := {}
+	for enemy: Dictionary in enemies:
+		var enemy_id := str(enemy.get("id", "?"))
+		ids[enemy_id] = true
+		var identity: Dictionary = PresentationSystemScript.identity_from_template(enemy)
+		_check(str(enemy.get("nickname", "")) != "" and str(identity.get("nickname", "")) != "", "inimigo %s tem apelido" % enemy_id)
+		var description := str(enemy.get("description", ""))
+		_check(description != "", "inimigo %s tem descrição" % enemy_id)
+		_check(description.contains("kg") and description.contains(" m"), "descrição de %s traz altura/peso ('%s')" % [enemy_id, description])
+		_check(str(enemy.get("weakness", "")) != "", "inimigo %s declara uma fraqueza" % enemy_id)
+		var taunts: Array = enemy.get("taunts", [])
+		_check(taunts.size() >= 2, "inimigo %s tem pelo menos 2 provocações (%d)" % [enemy_id, taunts.size()])
+		var all_valid := true
+		for line: Variant in taunts:
+			if str(line).strip_edges() == "":
+				all_valid = false
+		_check(all_valid, "as provocações de %s são textos não vazios" % enemy_id)
+		var resolved_taunts: Array = identity.get("taunts", [])
+		_check(not resolved_taunts.is_empty(), "a identidade resolvida de %s traz falas" % enemy_id)
+	_check(ids.size() == enemies.size(), "os ids de inimigos são únicos")
+	# A reserva é usada quando o template não traz identidade.
+	var generic: Dictionary = PresentationSystemScript.identity_from_template({})
+	_check(str(generic.get("nickname", "")) != "" and not (generic.get("taunts", []) as Array).is_empty(), "template vazio cai na reserva genérica (apelido + falas)")
 

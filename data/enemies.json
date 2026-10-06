@@ -1,8 +1,115 @@
 [
-  {"id": "brutus", "display_name": "Brutus, o Cobre", "base_health": 46, "base_attack": 8, "base_defense": 3, "base_luck": 4},
-  {"id": "livia", "display_name": "Lívia, a Falcão", "base_health": 42, "base_attack": 10, "base_defense": 2, "base_luck": 7},
-  {"id": "maurus", "display_name": "Maurus, o Implacável", "base_health": 52, "base_attack": 7, "base_defense": 5, "base_luck": 3},
-  {"id": "vettius", "display_name": "Véttius, o Mestre de Armas", "base_health": 60, "base_attack": 11, "base_defense": 6, "base_luck": 6},
-  {"id": "imperator", "display_name": "Imperador Cálvus", "base_health": 80, "base_attack": 13, "base_defense": 7, "base_luck": 8, "boss": true, "special": {"id": "fury", "display_name": "Fúria do Imperador", "description": "A cada três golpes, um ataque devastador e impreciso.", "multiplier": 2.0, "accuracy": 0.6}},
-  {"id": "grande_gladiador", "display_name": "O Grande Gladiador", "base_health": 120, "base_attack": 15, "base_defense": 9, "base_luck": 10, "boss": true, "special": {"id": "coliseum", "display_name": "Golpe do Coliseu", "description": "A cada três golpes, um golpe que atravessa a defesa.", "multiplier": 2.3, "accuracy": 0.65, "pierce": true}}
+  {
+    "id": "brutus",
+    "display_name": "Brutus, o Cobre",
+    "nickname": "O Muro de Cobre",
+    "description": "Ex-minerador das minas do sul, 1,88 m, 121 kg. Aguenta pancada como se fosse feito de metal.",
+    "weakness": "Pés lentos: sofre para fechar a distância contra arqueiros.",
+    "taunts": [
+      "Você vai quebrar antes do meu escudo.",
+      "Já enterrei maiores que você nesta areia.",
+      "Vem cá, quero sentir seus ossos de pertinho."
+    ],
+    "base_health": 46,
+    "base_attack": 8,
+    "base_defense": 3,
+    "base_luck": 4
+  },
+  {
+    "id": "livia",
+    "display_name": "Lívia, a Falcão",
+    "nickname": "A Lâmina Silenciosa",
+    "description": "Assassina reformada, 1,72 m, 63 kg. Golpeia antes de o público piscar.",
+    "weakness": "Frágil: um único golpe pesado a derruba.",
+    "taunts": [
+      "Você já está morto, só ainda não sabe.",
+      "Olhe nos meus olhos... agora é tarde.",
+      "Pisca — e você perde."
+    ],
+    "base_health": 42,
+    "base_attack": 10,
+    "base_defense": 2,
+    "base_luck": 7
+  },
+  {
+    "id": "maurus",
+    "display_name": "Maurus, o Implacável",
+    "nickname": "O Touro de Ferro",
+    "description": "Carrasco das arenas do norte, 1,95 m, 134 kg. Não recua nem quando sangra.",
+    "weakness": "Previsível: telegrafa o golpe forte antes de descer.",
+    "taunts": [
+      "Vou te partir em dois e vender as partes.",
+      "Já sangrei mais do que você tem de sangue.",
+      "Levanta, quero que dure mais."
+    ],
+    "base_health": 52,
+    "base_attack": 7,
+    "base_defense": 5,
+    "base_luck": 3
+  },
+  {
+    "id": "vettius",
+    "display_name": "Véttius, o Mestre de Armas",
+    "nickname": "O Instrutor",
+    "description": "Gladiador-escola, 1,80 m, 92 kg. Ensinou dezenas a matar — e enterrou todas.",
+    "weakness": "Vaidoso: perde o turno posando para a plateia.",
+    "taunts": [
+      "Vou te dar uma aula — a última da sua vida.",
+      "Aprendeu a lutar onde, num celeiro?",
+      "Cada erro seu eu cobro em sangue."
+    ],
+    "base_health": 60,
+    "base_attack": 11,
+    "base_defense": 6,
+    "base_luck": 6
+  },
+  {
+    "id": "imperator",
+    "display_name": "Imperador Cálvus",
+    "nickname": "A Coroa de Ferro",
+    "description": "Tirano da arena central, 1,98 m, 142 kg. O público paga para vê-lo perder; ninguém conseguiu.",
+    "weakness": "Arrogante: subestima oponentes menores na primeira rodada.",
+    "taunts": [
+      "Ninguém derruba um imperador.",
+      "Sua coragem será sua ruína.",
+      "Ajoelhe e talvez eu te poupe a vida."
+    ],
+    "base_health": 80,
+    "base_attack": 13,
+    "base_defense": 7,
+    "base_luck": 8,
+    "boss": true,
+    "special": {
+      "id": "fury",
+      "display_name": "Fúria do Imperador",
+      "description": "A cada três golpes, um ataque devastador e impreciso.",
+      "multiplier": 2.0,
+      "accuracy": 0.6
+    }
+  },
+  {
+    "id": "grande_gladiador",
+    "display_name": "O Grande Gladiador",
+    "nickname": "O Rei da Areia",
+    "description": "Lenda viva do Coliseu, 2,02 m, 158 kg. Nunca perdeu em casa — jamais lutou fora dela.",
+    "weakness": "Depende do escudo do Coliseu: sem ele, a guarda abre.",
+    "taunts": [
+      "Sou a areia que enterra os seus sonhos.",
+      "O Coliseu já viu você perder mil vezes, em sonho.",
+      "Se chegar perto, o pó será seu túmulo."
+    ],
+    "base_health": 120,
+    "base_attack": 15,
+    "base_defense": 9,
+    "base_luck": 10,
+    "boss": true,
+    "special": {
+      "id": "coliseum",
+      "display_name": "Golpe do Coliseu",
+      "description": "A cada três golpes, um golpe que atravessa a defesa.",
+      "multiplier": 2.3,
+      "accuracy": 0.65,
+      "pierce": true
+    }
+  }
 ]

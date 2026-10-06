@@ -190,7 +190,12 @@ func build_interface() -> void:
 	root.add_child(action_row)
 
 func start_new_fight() -> void:
-	foe = GameState.build_current_foe()
+	# Reaproveita o adversário já apresentado na tela de apresentação (item F) —
+	# senão o inimigo procedural da Arena Livre seria regerado e não seria o mesmo
+	# que o jogador acabou de ver. Fallback: monta aqui se a tela não veio antes.
+	foe = GameState.current_enemy
+	if foe == null:
+		foe = GameState.build_current_foe()
 	if foe == null:
 		fight_active = false
 		crowd = null

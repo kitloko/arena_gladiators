@@ -59,9 +59,27 @@ func _run_test() -> void:
 	_check(_count_named(app, "equipslot_") == 6, "a tela desenha os 6 slots de equipamento")
 	_press_button(app, "VOLTAR À CIDADE")
 	await get_tree().create_timer(0.3).timeout
-	# 5) Arena Livre a partir da cidade
+	# 5) Arena Livre a partir da cidade — com a APRESENTAÇÃO do adversário (item F)
+	# antes da luta: o combate só começa ao clicar em ENTRAR NA ARENA.
 	_press_button_contains(app, "Arena Livre")
 	await get_tree().create_timer(0.4).timeout
+	var prefight = _find_by_method(app, "enter_arena")
+	_check(prefight != null, "a apresentação do adversário aparece antes da luta")
+	_check(_find_by_method(app, "start_new_fight") == null, "o combate NÃO começou antes do clique em ENTRAR NA ARENA")
+	_check(GameState.current_enemy != null, "o adversário já está definido na apresentação")
+	if prefight == null:
+		_finish()
+		return
+	_check(_find_label_contains(app, GameState.player.display_name) != null, "apresentação mostra o nome do jogador")
+	_check(_find_label_contains(app, str(GameState.current_enemy.display_name)) != null, "apresentação mostra o nome do inimigo")
+	_check(_find_label_contains(app, "VS") != null, "apresentação mostra o VS entre os lutadores")
+	_check(_find_label_contains(app, "ÍNDICE DE PODER") != null, "apresentação mostra o ÍNDICE DE PODER")
+	_check(_find_button(app, "ENTRAR NA ARENA") != null, "botão ENTRAR NA ARENA presente")
+	var presented_foe := str(GameState.current_enemy.display_name)
+	_press_button(app, "ENTRAR NA ARENA")
+	await get_tree().create_timer(0.5).timeout
+	_check(_find_by_method(app, "start_new_fight") != null, "ENTRAR NA ARENA inicia o combate")
+	_check(GameState.current_enemy != null and str(GameState.current_enemy.display_name) == presented_foe, "o inimigo apresentado é o mesmo que se luta")
 	var arena = _find_by_method(app, "start_new_fight")
 	_check(arena != null and GameState.current_enemy != null, "luta começa a partir da cidade")
 	if arena == null:
@@ -136,7 +154,10 @@ func _run_test() -> void:
 	await get_tree().process_frame
 	_press_button(app, "SEGUIR")
 	await get_tree().create_timer(0.4).timeout
-	_check(_find_by_method(app, "start_new_fight") != null and GameState.current_enemy != null, "seguir inicia uma nova luta (inimigo gerado)")
+	_check(_find_by_method(app, "enter_arena") != null and GameState.current_enemy != null, "seguir leva à apresentação de uma nova luta (inimigo gerado)")
+	_press_button(app, "ENTRAR NA ARENA")
+	await get_tree().create_timer(0.5).timeout
+	_check(_find_by_method(app, "start_new_fight") != null and GameState.current_enemy != null, "ENTRAR NA ARENA inicia a nova luta")
 	_check(GameState.has_save(), "progresso salvo automaticamente")
 	var gold_saved: int = GameState.player.gold
 	var attack_saved: int = GameState.player.attack
@@ -234,6 +255,17 @@ func _run_test() -> void:
 	_check(_count_named(app, "bagrow_") == GameState.player.bag_items().size(), "a bolsa desenha uma linha por item (%d)" % GameState.player.bag_items().size())
 	_press_button(app, "VOLTAR À CIDADE")
 	await get_tree().create_timer(0.3).timeout
+	# 11) Torneio: a apresentação (item F) também aparece antes do primeiro combate.
+	GameState.player.rank_points = 5000
+	_press_button_contains(app, "Grande Torneio")
+	await get_tree().create_timer(0.4).timeout
+	_check(_find_by_method(app, "enter_arena") != null and GameState.is_tournament(), "o torneio também passa pela apresentação antes da luta")
+	_check(_find_by_method(app, "start_new_fight") == null, "torneio: o combate não começa antes do clique")
+	_check(_find_label_contains(app, "VS") != null and _find_label_contains(app, "ÍNDICE DE PODER") != null, "apresentação do torneio mostra o VS e o ÍNDICE DE PODER")
+	_press_button(app, "ENTRAR NA ARENA")
+	await get_tree().create_timer(0.5).timeout
+	_check(_find_by_method(app, "start_new_fight") != null, "torneio: ENTRAR NA ARENA inicia o combate")
+	GameState.finish_tournament()
 	GameState.clear_save()
 	_finish()
 

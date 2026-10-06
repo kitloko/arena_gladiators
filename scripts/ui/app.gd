@@ -9,6 +9,7 @@ extends Control
 
 const CreationScreenScene := preload("res://scenes/creation_screen.tscn")
 const CityScreenScene := preload("res://scenes/city_screen.tscn")
+const PreFightScreenScene := preload("res://scenes/pre_fight_screen.tscn")
 const ArenaScreenScene := preload("res://scenes/arena.tscn")
 const ResultScreenScene := preload("res://scenes/result_screen.tscn")
 const ShopScreenScene := preload("res://scenes/shop_screen.tscn")
@@ -53,7 +54,7 @@ func show_city() -> void:
 	_clear_screens()
 	var screen := CityScreenScene.instantiate()
 	add_child(screen)
-	screen.arena_requested.connect(show_arena)
+	screen.arena_requested.connect(show_prefight)
 	screen.tournament_requested.connect(_on_tournament_requested)
 	screen.shop_requested.connect(show_shop)
 	screen.character_requested.connect(show_character)
@@ -65,7 +66,7 @@ func _on_new_gladiator() -> void:
 
 func _on_tournament_requested(tier_id: String) -> void:
 	if GameState.start_tournament(tier_id):
-		show_arena()
+		show_prefight()
 
 # --- Loja / personagem -----------------------------------------------------
 
@@ -81,7 +82,18 @@ func show_character() -> void:
 	add_child(screen)
 	screen.closed.connect(show_city)
 
-# --- Arena / resultado -------------------------------------------------------
+# --- Apresentação / arena / resultado ---------------------------------------
+
+## Apresentação do adversário (item F): materializa o adversário UMA vez, guarda em
+## GameState.current_enemy e mostra a tela de apresentação antes de CADA luta
+## (Arena Livre e torneio). O combate só começa quando o jogador clica em
+## ENTRAR NA ARENA (sinal fight_started → show_arena).
+func show_prefight() -> void:
+	GameState.current_enemy = GameState.build_current_foe()
+	_clear_screens()
+	var screen := PreFightScreenScene.instantiate()
+	add_child(screen)
+	screen.fight_started.connect(show_arena)
 
 func show_arena() -> void:
 	if GameState.player != null and not GameState.is_tournament():
@@ -110,9 +122,9 @@ func _on_result_action(action: String) -> void:
 			show_character()
 		"rest":
 			GameState.rest()
-			show_arena()
+			show_prefight()
 		"next", "retry":
-			show_arena()
+			show_prefight()
 		"camp":
 			GameState.save_progress()
 			show_city()
