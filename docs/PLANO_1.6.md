@@ -69,6 +69,12 @@ bolsa desequipa; slot errado recusa o drop. Verificado no QA visual (screenshot 
 
 ## 7. Ideias novas (Swords and Sandals) — PROPOSTA, não implementar sem OK
 
+> **Consolidado em [`IDEIAS.md`](IDEIAS.md)** (06/10/2026), que reúne esta lista mais os itens novos pedidos
+> naquele dia: **8 atributos no estilo SOS** (força/ataque/defesa/agilidade/vitalícia... — inclui a correção de
+> que "mais atributos" era **categoria**, não pontos), **Taunt**, **Sleep (cura %)**, **armadura como reserva
+> separada da vida + auto-defesa e evasão**, **apresentação do adversário com comparação antes da luta** e
+> **cidade como cenário com locais clicáveis**. A lista abaixo fica como histórico.
+
 Ordem sugerida (por impacto no jogo, não por esforço):
 
 1. **Pontos de atributo no nível em vez de menu fixo.** Hoje subir de nível escolhe entre 4 opções prontas
@@ -108,7 +114,7 @@ Tudo abaixo foi aplicado **direto na `main`** (exceção combinada para este rep
 | 3. Prêmio do torneio | **Corrigido** | QA: `PRÊMIO DE ITEM NA TELA DE RESULTADO: 1 ficha(s) de item | bolsa: 1 item(ns)`; screenshot `16_resultado_torneio.png` com a ficha (nome, raridade, nível, bônus). `flow_smoke.tscn`: rodada vencida adiciona 1 item; a rodada final entrega os 2 (item da rodada + item único) e o **Gládio vai para a bolsa** em vez de ser equipado à força |
 | 4. Vender da bolsa | **Implementado** | `flow_smoke.tscn`: vender credita 40% do preço e o item sai da bolsa; item **equipado** é recusado; item **único** é recusado com motivo. QA: botão `VENDER (12)` para um item de 30 de ouro |
 | 5. UI + arrastar-e-soltar | **Implementado** | `flow_smoke.tscn`: 6 slots desenhados (`equipslot_*`), uma linha por item da bolsa (`bagrow_*`) e os painéis implementam `_get_drag_data`. QA visual: `07_personagem_bolsa.png` (tela vazia), `19_personagem_bolsa_com_itens.png` (com item, preço e botões) |
-| 6. Mais atributos | **Feito** | Criação com **20 pontos** (vida 76, ATQ 20, DEF 6 no build de teste); `run_balance_test.gd` remedido com o build novo: **PASS** |
+| 6. Mais atributos | **Feito (pontos) + revisado** | Criação com **20 pontos** (vida 76, ATQ 20, DEF 6 no build de teste); `run_balance_test.gd` remedido com o build novo: **PASS**. **Correção do pedido (06/10):** o pedido era **mais categorias de atributo** (estilo SOS: força, agilidade, carisma, vitalidade, fôlego, magicka...), não só mais pontos — virou o item **A** de [`IDEIAS.md`](IDEIAS.md). Os 20 pontos seguem válidos; o que muda na ideia A é **quais atributos existem** (hoje 4) |
 | 7. Ideias novas | **Proposta** (sem OK) | Lista na seção 7 — nada implementado sem autorização |
 
 ### Observações honestas
