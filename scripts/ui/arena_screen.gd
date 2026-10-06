@@ -25,6 +25,7 @@ const INK := Color("f7edf4")
 const ARMOUR_COLOR := Color("70b9e8")
 const CombatResolverScript := preload("res://scripts/systems/combat_resolver.gd")
 const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
+const CrowdSystemScript := preload("res://scripts/systems/crowd_system.gd")
 const FightResultScript := preload("res://scripts/models/fight_result.gd")
 const ContentRepositoryScript := preload("res://scripts/repositories/content_repository.gd")
 const SLOT_ORDER := ["weapon", "armor", "helmet", "gloves", "boots", "belt"]
@@ -46,6 +47,12 @@ var enemy_pos: int = 4
 var combat_results: Array[Dictionary] = []
 var last_action_result: Dictionary = {}
 
+## Felicidade do público (item H): barra 0-100% no topo, movida pelos eventos da
+## luta. O público é exposto ao teste de fluxo (nome público, como `distance`).
+var crowd
+## Rodada corrente sem ninguém perder vida (gera vaias crescentes no fim).
+var _round_cold: bool = true
+
 var _total_hits := 0
 var _criticals := 0
 var _damage_dealt := 0
@@ -55,6 +62,8 @@ var _enemy_moves := 0
 var status_label: Label
 var distance_label: Label
 var distance_track: HBoxContainer
+var crowd_bar: ProgressBar
+var crowd_label: Label
 var hero_card: VBoxContainer
 var foe_card: VBoxContainer
 var combat_log: RichTextLabel
@@ -121,6 +130,20 @@ func build_interface() -> void:
 	root.add_child(make_label("ARENA DOS GLADIADORES", 24, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
 	status_label = make_label("", 15, Color("cdbfd5"), HORIZONTAL_ALIGNMENT_CENTER)
 	root.add_child(status_label)
+	# Barra da felicidade do público (item H): 0 a 100%, SEMPRE visível no topo.
+	var crowd_box := VBoxContainer.new()
+	crowd_box.add_theme_constant_override("separation", 2)
+	root.add_child(crowd_box)
+	crowd_label = make_label("PÚBLICO DA ARENA  0%", 15, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	crowd_box.add_child(crowd_label)
+	crowd_bar = ProgressBar.new()
+	crowd_bar.max_value = float(CrowdSystemScript.MAX_VALUE)
+	crowd_bar.value = 0.0
+	crowd_bar.show_percentage = false
+	crowd_bar.custom_minimum_size = Vector2(0, 14)
+	crowd_bar.add_theme_stylebox_override("background", panel_style(PANEL_LIGHT, 6))
+	crowd_bar.add_theme_stylebox_override("fill", panel_style(GOLD, 6))
+	crowd_box.add_child(crowd_bar)
 	# Palco da luta: cenário de fundo + lutadores em sprite que andam nas células.
 	_stage = Control.new()
 	_stage.custom_minimum_size = Vector2(0, 250)
@@ -154,7 +177,7 @@ func build_interface() -> void:
 	combat_log.add_theme_stylebox_override("normal", panel_style(PANEL, 10))
 	root.add_child(combat_log)
 	action_row = GridContainer.new()
-	action_row.columns = 4
+	action_row.columns = 5
 	action_row.add_theme_constant_override("h_separation", 10)
 	action_row.add_theme_constant_override("v_separation", 6)
 	root.add_child(action_row)
@@ -163,12 +186,18 @@ func start_new_fight() -> void:
 	foe = GameState.build_current_foe()
 	if foe == null:
 		fight_active = false
+		crowd = null
 		log_lines = ["[color=#d95858]Não há inimigo configurado para esta arena.[/color]"]
 		refresh()
 		return
 	GameState.current_enemy = foe
 	fight_active = true
 	round_number = 1
+	# Felicidade do público (item H): início pelo CARISMA dos dois lutadores, com
+	# piso de 60 em luta contra chefe (stage boss ou template "boss": true).
+	var is_boss: bool = GameState.is_boss_stage() or bool(foe.boss)
+	crowd = CrowdSystemScript.new(GameState.player, foe, is_boss)
+	_round_cold = true
 	_total_hits = 0
 	_criticals = 0
 	_damage_dealt = 0
@@ -199,6 +228,7 @@ func _build_action_buttons() -> void:
 	for action: Dictionary in CombatResolverScript.attack_actions_for(weapon):
 		_add_action_button(str(action.get("label", "ATAQUE")), str(action.get("id", "")), GOLD)
 	_add_action_button("DEFESA FIRME", "defend", ARMOUR_COLOR)
+	_add_action_button("EXIBIR", "exhibit", Color("e8a13a"))
 	_add_action_button("AVANÇAR", "advance", GREEN)
 	_add_action_button("RECUAR", "retreat", Color("d9a45b"))
 	_add_action_button(_taunt_label(), "taunt", Color("e06bb5"))
@@ -223,8 +253,14 @@ func player_action(kind: String) -> void:
 	if not fight_active:
 		return
 	set_actions_enabled(false)
+	if crowd != null:
+		crowd.register_action()
+		# Defender/recuar em sequência satura; qualquer outra ação zera a sequência.
+		if kind != "defend" and kind != "retreat":
+			crowd.reset_action_streaks()
 	var defense_bonus := 0
 	var enemy_phase_consumed := false
+	var attacked := false
 	match kind:
 		"advance":
 			_advance_player(false)
@@ -234,24 +270,38 @@ func player_action(kind: String) -> void:
 			defense_bonus = CombatResolverScript.DEFEND_GUARD_BONUS
 			_play_pose(true, "defend", 0.5)
 			log_lines.append("[color=#70b9e8]%s assume uma defesa firme (reduz o próximo dano).[/color]" % GameState.player.display_name)
+			_crowd_event("defend")
 		"sleep":
 			_player_sleep()
 		"taunt":
 			enemy_phase_consumed = _player_taunt()
+		"exhibit":
+			_player_exhibit()
 		"investida":
 			_advance_player(true)
 			_player_named_attack("investida")
+			attacked = true
 		"skill":
 			var skill_action: Dictionary = GameState.player_skill()
 			if not skill_action.is_empty():
 				_player_attack(float(skill_action.get("multiplier", 1.0)), float(skill_action.get("accuracy", 1.0)), 1.0, "%s usa %s" % [GameState.player.display_name, str(skill_action.get("display_name", "habilidade"))])
+				attacked = true
 		"golpe", "golpe_forte", "tiro", "tiro_certeiro", "bombardeio":
 			_player_named_attack(kind)
+			attacked = true
 		_:
 			pass
+	# Drama: vida abaixo de 30% e AINDA atacando → +4 no turno.
+	if attacked and crowd != null and float(GameState.player.health) < float(GameState.player.max_health) * CrowdSystemScript.DRAMA_HEALTH_FRACTION:
+		_crowd_event("drama")
 	refresh()
 	if foe.is_defeated():
 		win_fight()
+		return
+	# O REVIDAR pode derrubar o jogador durante a própria ação: não deixa o
+	# inimigo agir contra um corpo caído.
+	if GameState.player.is_defeated():
+		lose_fight()
 		return
 	await get_tree().create_timer(0.45).timeout
 	if enemy_phase_consumed:
@@ -276,6 +326,7 @@ func _retreat_player() -> void:
 	_sync_distance()
 	_hero_moving = true
 	log_lines.append("[color=#d9a45b]%s recua (distância %d).[/color]" % [GameState.player.display_name, distance])
+	_crowd_event("retreat")
 
 func enemy_turn(defense_bonus: int) -> void:
 	if not fight_active:
@@ -300,14 +351,24 @@ func enemy_turn(defense_bonus: int) -> void:
 			_enemy_moves += 1
 			_enemy_attack_or_special(defense_bonus, {"kind": "melee", "reach": reach})
 	GameState.player.vulnerable = false
+	if crowd != null:
+		crowd.clear_exposed()
 	_finish_round()
 
 ## Fecha o turno: incrementa a rodada, atualiza a tela e devolve as ações (ou derrota).
 func _finish_round() -> void:
+	# Rodada fria (ninguém perdeu vida) faz o público vaiar; rodada normal esfria
+	# devagar — assim a barra nunca fica parada no teto.
+	if crowd != null:
+		_log_crowd(crowd.end_round(_round_cold))
+	_round_cold = true
 	round_number += 1
 	refresh()
 	if GameState.player.is_defeated():
 		lose_fight()
+	elif foe != null and foe.is_defeated():
+		# O jogador aparou e revidou, derrubando o inimigo no turno dele.
+		win_fight()
 	else:
 		set_actions_enabled(true)
 		_apply_action_states()
@@ -324,8 +385,14 @@ func _enemy_attack_or_special(defense_bonus: int, weapon: Dictionary) -> void:
 		accuracy = float(special.get("accuracy", 0.7))
 	elif str(action.kind) == "brutal":
 		message = "%s desfere um golpe brutal" % foe.display_name
-	# Contra quem DORMIU: mais precisão (e o alvo não esquiva, ver resolve_attack).
-	if bool(GameState.player.vulnerable):
+	# ABERTO (EXIBIR): o inimigo ataca com +25% de precisão e a esquiva não vale.
+	# Contra quem DORMIU vale a vulnerabilidade do sono (mais precisão, sem esquiva).
+	var exhibit_open: bool = crowd != null and bool(crowd.exposed)
+	if exhibit_open:
+		accuracy = clampf(accuracy + CrowdSystemScript.EXHIBIT_OPEN_ACCURACY, 0.0, 1.0)
+		GameState.player.vulnerable = true
+		message += " enquanto você se exibe"
+	elif bool(GameState.player.vulnerable):
 		accuracy = clampf(accuracy + CombatResolverScript.SLEEP_VULNERABLE_ACCURACY, 0.0, 1.0)
 		message += " contra você exposto"
 	_play_pose(false, "attack", 0.35)
@@ -345,6 +412,7 @@ func _player_attack(multiplier: float, accuracy: float, penalty_scale: float, me
 	var result: Dictionary = CombatResolverScript.resolve_positional_attack(GameState.player, foe, weapon, distance, multiplier, accuracy, 0, penalty_scale)
 	if bool(result.get("out_of_range", false)):
 		log_lines.append("[color=#bbaec1]%s, mas está longe demais (distância %d).[/color]" % [message, distance])
+		_crowd_event("missed")
 		return
 	_apply_combat_result(GameState.player, foe, message, result)
 	if bool(result.hit) and int(result.entered) > 0 and not bool(result.blocked):
@@ -371,6 +439,51 @@ func _player_sleep() -> void:
 	if gained > 0:
 		_spawn_status_text(true, "+%d" % gained, GREEN)
 	log_lines.append("[color=#8f83b3]%s dorme e recupera %d de vida — mas fica VULNERÁVEL no próximo golpe.[/color]" % [GameState.player.display_name, gained])
+	_crowd_event("sleep")
+
+## EXIBIR (item H §5): gasta o turno, melhora a felicidade do público (rendendo
+## cada vez menos na mesma luta) e deixa o jogador ABERTO — o inimigo ataca com
+## +25% de precisão e a esquiva não vale no turno seguinte.
+func _player_exhibit() -> void:
+	_play_pose(true, "defend", 0.6)
+	log_lines.append("[color=#f5c451]%s se exibe para o público![/color]" % GameState.player.display_name)
+	_crowd_event("exhibit")
+
+## Registra um evento de público, escreve a variação no log e solta um balão.
+func _crowd_event(event_id: String) -> Dictionary:
+	if crowd == null:
+		return {}
+	var entry: Dictionary = crowd.apply_event(event_id)
+	_log_crowd(entry)
+	return entry
+
+func _log_crowd(entry: Dictionary) -> void:
+	if entry.is_empty():
+		return
+	var delta := int(entry.get("delta", 0))
+	# O tédio (-1/rodada) é sutil e fica fora do log; o resto aparece para o
+	# jogador entender por que a barra subiu ou desceu.
+	if absi(delta) < 2:
+		return
+	log_lines.append("[color=#f5c451]%s[/color]" % CrowdSystemScript.log_line(entry))
+	_spawn_crowd_bubble(delta)
+
+## Balão flutuante perto da barra do público com a variação (+8 / -5).
+func _spawn_crowd_bubble(delta: int) -> void:
+	if crowd_bar == null or not crowd_bar.is_inside_tree():
+		return
+	var label := make_label("%+d" % delta, 16, GOLD if delta > 0 else Color("e08a8a"), HORIZONTAL_ALIGNMENT_CENTER)
+	label.custom_minimum_size = Vector2(48, 0)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.z_index = 20
+	add_child(label)
+	var rect := crowd_bar.get_global_rect()
+	label.position = Vector2(rect.position.x + rect.size.x * 0.5 - 24.0, rect.position.y - 18.0)
+	var tween := label.create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(label, "position", label.position + Vector2(0, -22), 0.7)
+	tween.tween_property(label, "modulate:a", 0.0, 0.7).set_delay(0.15)
+	tween.chain().tween_callback(label.queue_free)
 
 ## TAUNT: chance por CHA (vs CHA/DEF/SOR do alvo) com peso do STR. Devolve true
 ## quando o Taunt CONSUMIU o turno do inimigo (sucesso).
@@ -429,6 +542,10 @@ func _apply_combat_result(attacker, target, message: String, result: Dictionary)
 	last_action_result = entry
 	var is_player_attack: bool = attacker == GameState.player
 	var target_is_player: bool = target == GameState.player
+	# Marca a rodada como "com sangue" quando alguém perde vida de verdade.
+	if int(result.get("health_damage", 0)) > 0 or int(result.get("counter_health_damage", 0)) > 0:
+		_round_cold = false
+	_apply_crowd_from_result(result, is_player_attack)
 	if bool(result.get("dodged", false)):
 		log_lines.append("[color=#bbaec1]%s — %s esQUIVA! ERROU.[/color]" % [message, target.display_name])
 		_spawn_status_text(target_is_player, "ERROU", Color("bbaec1"))
@@ -449,11 +566,30 @@ func _apply_combat_result(attacker, target, message: String, result: Dictionary)
 		_flash_defense(target_is_player)
 		_spawn_status_text(target_is_player, "APAROU %d" % int(result.get("blocked_amount", 0)), ARMOUR_COLOR)
 		log_lines.append("[color=#70b9e8]%s: %s aparou %d, entrou %d.[/color]" % [message, target.display_name, int(result.get("blocked_amount", 0)), entered])
+		if bool(result.get("countered", false)):
+			_log_counter(attacker, target, result)
 	else:
 		var tag := " [color=#f5c451]CRÍTICO![/color]" if bool(result.get("critical", false)) else ""
 		log_lines.append("%s e causa [color=#d95858]%d de dano[/color].%s" % [message, entered, tag])
 	if entered > 0:
 		_spawn_damage_text(target_is_player, entered, bool(result.get("critical", false)))
+
+## Deriva os eventos de público de um resultado de combate (regra única em
+## CrowdSystem) e escreve cada variação no log.
+func _apply_crowd_from_result(result: Dictionary, player_is_attacker: bool) -> void:
+	if crowd == null:
+		return
+	for entry: Dictionary in crowd.apply_combat_result(result, player_is_attacker):
+		_log_crowd(entry)
+
+## REVIDAR (contra-ataque): quem aparou devolve parte do golpe ao atacante.
+func _log_counter(attacker, target, result: Dictionary) -> void:
+	var counter := int(result.get("counter_damage", 0))
+	if counter <= 0 or target == null:
+		return
+	var attacker_name: String = attacker.display_name if attacker != null else "o atacante"
+	log_lines.append("[color=#e8a13a]%s REVIDA e devolve [color=#d95858]%d de dano[/color] a %s![/color]" % [target.display_name, counter, attacker_name])
+	_spawn_status_text(attacker == GameState.player, "REVIDOU", Color("e8a13a"))
 
 func _apply_action_states() -> void:
 	var can_attack := _weapon_can_attack()
@@ -469,7 +605,7 @@ func _apply_action_states() -> void:
 				button.disabled = player_pos <= 0
 			"investida":
 				button.disabled = not (can_attack or can_advance)
-			"defend", "sleep", "taunt":
+			"defend", "sleep", "taunt", "exhibit":
 				button.disabled = false
 			_:
 				button.disabled = not can_attack
@@ -530,8 +666,12 @@ func win_fight() -> void:
 	fight_active = false
 	set_actions_enabled(false)
 	var was_boss: bool = GameState.is_boss_stage()
+	# Felicidade do público (item H) → multiplicador de OURO da vitória (×1,0..×2,0).
+	var crowd_mult := 1.0
+	if crowd != null:
+		crowd_mult = float(crowd.reward_multiplier())
 	var rewards_spec: Dictionary = EconomySystemScript.fight_rewards(GameState.player.level)
-	var rewards: Dictionary = GameState.on_victory(int(rewards_spec.gold), int(rewards_spec.experience))
+	var rewards: Dictionary = GameState.on_victory(int(rewards_spec.gold), int(rewards_spec.experience), crowd_mult)
 	var result = FightResultScript.new(true, round_number)
 	_fill_result(result, int(rewards.gold), int(rewards.experience))
 	result.leveled_up = bool(rewards.leveled_up)
@@ -569,12 +709,19 @@ func _fill_result(result, gold_value: int, xp_value: int) -> void:
 	result.damage_taken = _damage_taken
 	result.gold = gold_value
 	result.experience = xp_value
+	if crowd != null:
+		result.crowd_happiness = crowd.value()
+		result.crowd_multiplier = float(crowd.reward_multiplier())
+		result.quick_fight = crowd.is_quick_fight()
 	if foe != null:
 		result.opponent_name = foe.display_name
 
 func refresh() -> void:
 	status_label.text = "NÍVEL %d  •  %d XP  •  %d OURO  •  RODADA %d" % [GameState.player.level, GameState.player.experience, GameState.player.gold, round_number]
 	distance_label.text = "DISTÂNCIA: %d" % distance
+	if crowd != null and crowd_bar != null:
+		crowd_bar.value = float(crowd.value())
+		crowd_label.text = "PÚBLICO DA ARENA  %d%%" % int(crowd.value())
 	if _action_buttons.has("taunt"):
 		_action_buttons["taunt"].text = _taunt_label()
 	_update_track()

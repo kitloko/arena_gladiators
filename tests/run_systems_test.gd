@@ -6,6 +6,7 @@ extends SceneTree
 
 const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
 const CombatResolverScript := preload("res://scripts/systems/combat_resolver.gd")
+const CrowdSystemScript := preload("res://scripts/systems/crowd_system.gd")
 const GladiatorDataScript := preload("res://scripts/models/gladiator_data.gd")
 const ItemDataScript := preload("res://scripts/models/item_data.gd")
 const ContentRepositoryScript := preload("res://scripts/repositories/content_repository.gd")
@@ -42,6 +43,12 @@ func _initialize() -> void:
 	_test_sell_rules()
 	_test_streak_does_not_boost_experience()
 	_test_bag_and_unequip()
+	_test_crowd_start_value()
+	_test_crowd_events()
+	_test_crowd_exhibit_and_open()
+	_test_crowd_multiplier_and_quick_fight()
+	_test_counter_attack_on_block()
+	_test_crowd_anti_exploit()
 	if _failures == 0:
 		print("PASS: todos os testes de regras passaram.")
 		quit(0)
@@ -557,6 +564,173 @@ func _test_movement_and_range() -> void:
 	var hp_before: int = defender.health
 	CombatResolverScript.resolve_positional_attack(attacker, defender, melee, 1, 1.0, 1.0, 0)
 	_check(defender.health < hp_before or defender.armour < defender.max_armour, "melee em alcance causa dano")
+
+# --- Felicidade do público (item H) ----------------------------------------
+
+## Início: 30 + (CHA seu + CHA dele) × 1,5, teto 70; chefe tem PISO 60.
+func _test_crowd_start_value() -> void:
+	var player = _fighter({"id": "p", "base_charisma": 5})
+	var foe = _fighter({"id": "e", "base_charisma": 5})
+	_check(CrowdSystemScript.initial_happiness(player, foe, false) == 45, "público inicial = 30 + (5+5) × 1,5 = 45")
+	var rich = _fighter({"id": "p", "base_charisma": 50})
+	var rich_foe = _fighter({"id": "e", "base_charisma": 50})
+	_check(CrowdSystemScript.initial_happiness(rich, rich_foe, false) == 70, "público inicial tem TETO 70 (carisma 50+50)")
+	var low = _fighter({"id": "p", "base_charisma": 0})
+	var low_foe = _fighter({"id": "e", "base_charisma": 0})
+	_check(CrowdSystemScript.initial_happiness(low, low_foe, false) == 30, "carisma 0+0 fora de chefe começa em 30")
+	_check(CrowdSystemScript.initial_happiness(low, low_foe, true) == 60, "luta contra CHEFE tem PISO 60")
+	var crowd = CrowdSystemScript.new(player, foe, false)
+	_check(int(crowd.value()) == 45, "CrowdSystem.new usa a mesma conta do início")
+
+## Cada evento move a barra pelo valor esperado (spec item H §3).
+func _test_crowd_events() -> void:
+	var crowd = CrowdSystemScript.new(null, null, false)
+	_check(int(crowd.value()) == 30, "público neutro (sem carisma) começa em 30")
+	var expected := {
+		"hit": 2, "critical": 6, "counter": 5, "took_hit": 3, "drama": 4,
+		"missed": -5, "defend": -3, "retreat": -6, "sleep": -4,
+	}
+	for event_id: String in expected.keys():
+		var before: int = int(crowd.value())
+		var entry: Dictionary = crowd.apply_event(event_id)
+		var want: int = int(expected[event_id])
+		_check(int(entry.delta) == want and int(crowd.value()) == before + want, "evento '%s' = %+d" % [event_id, want])
+	var cold = CrowdSystemScript.new(null, null, false)
+	_check(int(cold.end_round(true).delta) == -2, "rodada em que ninguém se acertou: -2")
+	_check(int(cold.end_round(true).delta) == -4, "rodadas frias seguidas: vaias crescentes (-4)")
+	var busy = CrowdSystemScript.new(null, null, false)
+	_check(int(busy.end_round(false).delta) == -1, "rodada normal esfria 1 (anti 'parado no máximo')")
+	_check(CrowdSystemScript.MAX_VALUE == 100, "a barra tem teto 100")
+
+## EXIBIR: rendimento decrescente (+8, +4, +2, -5) e deixa o jogador ABERTO.
+func _test_crowd_exhibit_and_open() -> void:
+	var crowd = CrowdSystemScript.new(null, null, false)
+	var sequence := [8, 4, 2, -5, -5]
+	for i in sequence.size():
+		var entry: Dictionary = crowd.apply_event("exhibit")
+		_check(int(entry.delta) == int(sequence[i]), "EXIBIR %dª vez = %+d" % [i + 1, int(sequence[i])])
+	_check(bool(crowd.exposed), "EXIBIR deixa o jogador ABERTO (o inimigo ataca com bônus)")
+	crowd.clear_exposed()
+	_check(not bool(crowd.exposed), "clear_exposed limpa o ABERTO depois do turno do inimigo")
+	_check(CrowdSystemScript.EXHIBIT_OPEN_ACCURACY > 0.0, "o ABERTO dá +%d%% de precisão ao inimigo" % int(round(CrowdSystemScript.EXHIBIT_OPEN_ACCURACY * 100.0)))
+	# Defesa/recuo em sequência saturam (mesmo alternando as duas).
+	var passive = CrowdSystemScript.new(null, null, false)
+	_check(int(passive.apply_event("defend").delta) == -3, "1ª defesa firme = -3")
+	_check(int(passive.apply_event("retreat").delta) == -6, "1º recuo (na sequência passiva) = -6")
+	_check(int(passive.apply_event("defend").delta) == -5, "2ª defesa seguida satura (-5)")
+	_check(int(passive.apply_event("retreat").delta) == -8, "2º recuo seguido satura (-8)")
+	passive.reset_action_streaks()
+	_check(int(passive.apply_event("defend").delta) == -3, "outra ação zera a sequência (defesa volta a -3)")
+
+## Multiplicador: ×1,0 a ×2,0 e luta definida em até 3 ações não multiplica.
+func _test_crowd_multiplier_and_quick_fight() -> void:
+	var crowd = CrowdSystemScript.new(null, null, false)
+	crowd.actions = 10
+	crowd.happiness = 0
+	_check(is_equal_approx(crowd.reward_multiplier(), 1.0), "público 0% → ×1,0 (mínimo)")
+	crowd.happiness = 100
+	_check(is_equal_approx(crowd.reward_multiplier(), 2.0), "público 100% → ×2,0 (teto da arena)")
+	crowd.happiness = 50
+	_check(is_equal_approx(crowd.reward_multiplier(), 1.5), "público 50% → ×1,5 (= ×1,0 + público/100)")
+	var quick = CrowdSystemScript.new(null, null, false)
+	quick.happiness = 100
+	quick.actions = CrowdSystemScript.QUICK_FIGHT_ACTIONS
+	_check(quick.is_quick_fight() and is_equal_approx(quick.reward_multiplier(), 1.0), "luta definida em até 3 ações NÃO multiplica (×1,0)")
+	quick.actions = CrowdSystemScript.QUICK_FIGHT_ACTIONS + 1
+	_check(not quick.is_quick_fight() and quick.reward_multiplier() > 1.0, "a partir da 4ª ação o multiplicador volta a valer")
+	_check(is_equal_approx(CrowdSystemScript.MULTIPLIER_MAX, 2.0), "teto do multiplicador = ×2,0")
+
+## REVIDAR: aparar abre um contra-ataque que devolve parte do golpe ao atacante.
+func _test_counter_attack_on_block() -> void:
+	var counters := 0
+	var damage_ok := true
+	for i in 2000:
+		var attacker = _fighter({"id": "a", "base_attack": 0, "base_strength": 40, "base_agility": 0, "base_defence": 0, "base_luck": 0, "base_vitality": 40})
+		var defender = _fighter({"id": "d", "base_attack": 0, "base_strength": 5, "base_agility": 0, "base_defence": 50, "base_luck": 0, "base_vitality": 40})
+		var result: Dictionary = CombatResolverScript.resolve_attack(attacker, defender, 1.0, 1.0, 0)
+		if bool(result.get("countered", false)):
+			counters += 1
+			if int(result.counter_damage) < 1 or int(result.counter_armour_damage) + int(result.counter_health_damage) < 1:
+				damage_ok = false
+	_check(counters > 200, "aparar abre o REVIDAR (contra-ataque em %d de 2000)" % counters)
+	_check(damage_ok, "o REVIDAR devolve dano > 0 ao atacante (armadura/vida)")
+	_check(CombatResolverScript.COUNTER_CHANCE > 0.0 and CombatResolverScript.COUNTER_DAMAGE_FRACTION > 0.0, "parâmetros do REVIDAR definidos (chance %.2f, fração %.2f)" % [CombatResolverScript.COUNTER_CHANCE, CombatResolverScript.COUNTER_DAMAGE_FRACTION])
+	_check(CrowdSystemScript.DELTA_COUNTER == 5, "o REVIDAR alimenta o evento +5 do público")
+
+## ANTI-EXPLOIT (item H §7): spam de EXIBIR e fuga+defesa NÃO podem render mais
+## OURO por AÇÃO do que lutar direito. Mede o ouro por ação de cada estratégia.
+func _test_crowd_anti_exploit() -> void:
+	var trials := 400
+	var fight := _measure_strategy("fight", trials)
+	var exhibit := _measure_strategy("exhibit", trials)
+	var flee := _measure_strategy("flee", trials)
+	print("    ouro/ação — lutar direito %.3f | spam de EXIBIR %.3f | fuga+defesa %.3f" % [fight.gold_per_action, exhibit.gold_per_action, flee.gold_per_action])
+	print("    multiplicador médio — direito ×%.2f | EXIBIR ×%.2f | fuga ×%.2f | vitórias %d/%d/%d" % [fight.multiplier_avg, exhibit.multiplier_avg, flee.multiplier_avg, fight.wins, exhibit.wins, flee.wins])
+	_check(float(exhibit.gold_per_action) < float(fight.gold_per_action), "lutar direito rende mais ouro/ação que spam de EXIBIR (%.3f > %.3f)" % [fight.gold_per_action, exhibit.gold_per_action])
+	_check(float(flee.gold_per_action) < float(fight.gold_per_action), "lutar direito rende mais ouro/ação que fuga+defesa (%.3f > %.3f)" % [fight.gold_per_action, flee.gold_per_action])
+	_check(int(exhibit.wins) == 0 and int(flee.wins) == 0, "as duas estratégias de exploit PERDEM a luta (0 vitórias): não há ouro a multiplicar")
+	_check(float(fight.multiplier_avg) <= CrowdSystemScript.MULTIPLIER_MAX, "o multiplicador médio respeita o teto da arena ×%.2f (medido ×%.2f)" % [CrowdSystemScript.MULTIPLIER_MAX, fight.multiplier_avg])
+
+## Mede o ouro por ação de uma estratégia em N combates contra o mesmo inimigo.
+func _measure_strategy(strategy: String, trials: int) -> Dictionary:
+	var total_gold := 0.0
+	var total_actions := 0.0
+	var total_mult := 0.0
+	var wins := 0
+	for i in trials:
+		var player = _fighter({"id": "p", "base_strength": 30, "base_attack": 25, "base_defence": 6, "base_agility": 5, "base_vitality": 20, "base_charisma": 5, "base_luck": 5})
+		var foe = _fighter({"id": "f", "base_strength": 20, "base_attack": 0, "base_defence": 3, "base_agility": 0, "base_vitality": 18, "base_charisma": 5, "base_luck": 3})
+		var outcome: Dictionary = _run_crowd_fight(player, foe, strategy)
+		total_actions += float(outcome.actions)
+		total_mult += float(outcome.multiplier)
+		if bool(outcome.won):
+			wins += 1
+			total_gold += float(outcome.gold)
+	var gold_per_action := 0.0
+	if total_actions > 0.0:
+		gold_per_action = total_gold / total_actions
+	return {
+		"gold_per_action": gold_per_action,
+		"gold_total": total_gold,
+		"actions": int(round(total_actions / float(trials))),
+		"multiplier_avg": total_mult / float(trials),
+		"wins": wins,
+	}
+
+## Simula um combate com a régua REAL (CombatResolver + CrowdSystem). Vitória =
+## inimigo cai; o ouro da vitória = 40 × multiplicador do público.
+func _run_crowd_fight(player, foe, strategy: String) -> Dictionary:
+	var crowd = CrowdSystemScript.new(player, foe, false)
+	var guard := 0
+	while guard < 300:
+		guard += 1
+		var cold := true
+		crowd.register_action()
+		if strategy == "exhibit":
+			crowd.apply_event("exhibit")
+		elif strategy == "flee":
+			# Fuga e defesa: ações PASSIVAS em sequência (saturam).
+			if guard <= 3:
+				crowd.apply_event("retreat")
+			else:
+				crowd.apply_event("defend")
+		else:
+			crowd.reset_action_streaks()
+			var hit: Dictionary = CombatResolverScript.resolve_attack(player, foe, 1.0, 1.0, 0)
+			crowd.apply_combat_result(hit, true)
+			if int(hit.get("health_damage", 0)) > 0 or int(hit.get("counter_health_damage", 0)) > 0:
+				cold = false
+			if foe.is_defeated():
+				var mult := crowd.reward_multiplier()
+				return {"won": true, "actions": crowd.actions, "multiplier": mult, "gold": int(round(40.0 * mult))}
+		var enemy_hit: Dictionary = CombatResolverScript.resolve_attack(foe, player, 1.0, 1.0, 0)
+		crowd.apply_combat_result(enemy_hit, false)
+		if int(enemy_hit.get("health_damage", 0)) > 0 or int(enemy_hit.get("counter_health_damage", 0)) > 0:
+			cold = false
+		crowd.end_round(cold)
+		if player.is_defeated():
+			return {"won": false, "actions": crowd.actions, "multiplier": 0.0, "gold": 0}
+	return {"won": false, "actions": crowd.actions, "multiplier": 0.0, "gold": 0}
 
 func _check(condition: bool, label: String) -> void:
 	if condition:

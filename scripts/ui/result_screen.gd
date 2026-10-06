@@ -106,6 +106,12 @@ func _render_summary() -> void:
 	lines.append("")
 	lines.append("[color=#cdbfd5]Golpes certeiros: %d    Críticos: %d[/color]" % [int(_result.hits), int(_result.criticals)])
 	lines.append("[color=#cdbfd5]Dano causado: %d    Dano sofrido: %d[/color]" % [int(_result.damage_dealt), int(_result.damage_taken)])
+	# Felicidade do público (item H): valor final e multiplicador de ouro.
+	if bool(_result.quick_fight):
+		lines.append("[color=#bbaec1]Público: o público nem viu a luta — recompensa ×1,0.[/color]")
+	else:
+		var mult_text := ("%.1f" % float(_result.crowd_multiplier)).replace(".", ",")
+		lines.append("[color=#f5c451]Público: %d%% → recompensa ×%s[/color]" % [int(_result.crowd_happiness), mult_text])
 	var summary := RichTextLabel.new()
 	summary.bbcode_enabled = true
 	summary.custom_minimum_size = Vector2(0, 170 if not _result.loot.is_empty() else 200)

@@ -215,11 +215,14 @@ func _export_save() -> Dictionary:
 
 ## Aplica a recompensa e avança o modo atual. Retorna o que a tela de resultado
 ## precisa mostrar (gold de bolso na Arena Livre; prêmio acumulado no torneio).
-func on_victory(gold_reward: int, xp_reward: int) -> Dictionary:
+## `crowd_multiplier` é o multiplicador da felicidade do público (item H, ×1,0 a
+## ×2,0) e vale UMA vez, no fim da luta, só sobre o OURO.
+func on_victory(gold_reward: int, xp_reward: int, crowd_multiplier: float = 1.0) -> Dictionary:
 	if player == null:
 		return {"gold": 0, "prize": 0, "experience": 0, "leveled_up": false, "campaign_cleared": false, "tournament": false}
+	var crowd := clampf(crowd_multiplier, 1.0, 2.0)
 	if mode == "tournament":
-		return _on_tournament_victory(gold_reward, xp_reward)
+		return _on_tournament_victory(gold_reward, xp_reward, crowd)
 	# Arena Livre: recompensa escala pelo tier do inimigo E pela sequência de
 	# vitórias (win streak). Perder zera a sequência — por isso vale descansar
 	# para continuar vencendo e não perder o bônus acumulado.
@@ -228,8 +231,9 @@ func on_victory(gold_reward: int, xp_reward: int) -> Dictionary:
 	if current_enemy != null:
 		mult = float(current_enemy.reward_multiplier)
 	var streak_mult := EconomySystemScript.streak_reward_multiplier(win_streak)
-	# Ouro: escala com o tier do inimigo E com a sequência de vitórias.
-	var gold_gain := int(round(float(maxi(0, gold_reward)) * mult * streak_mult))
+	# Ouro: escala com o tier do inimigo E com a sequência de vitórias E com a
+	# felicidade do público (item H).
+	var gold_gain := int(round(float(maxi(0, gold_reward)) * mult * streak_mult * crowd))
 	# XP: escala SÓ com o tier (bônus pequeno). A sequência multiplicava o XP também,
 	# e com 5 vitórias seguidas no nível 1 a luta rendia mais XP que o nível exigia —
 	# o personagem subia de nível a cada luta.
@@ -243,10 +247,11 @@ func on_victory(gold_reward: int, xp_reward: int) -> Dictionary:
 	player_changed.emit(player)
 	return {"gold": gold_gain, "prize": 0, "experience": xp_gain, "leveled_up": leveled_up, "campaign_cleared": false, "tournament": false, "streak": win_streak, "streak_bonus_pct": EconomySystemScript.streak_bonus_percent(win_streak)}
 
-func _on_tournament_victory(gold_reward: int, xp_reward: int) -> Dictionary:
+func _on_tournament_victory(gold_reward: int, xp_reward: int, crowd_multiplier: float = 1.0) -> Dictionary:
 	var tier := tournament_tier()
 	var multiplier := float(tier.get("reward_multiplier", 1.0))
-	var gold_prize := int(round(float(maxi(0, gold_reward)) * multiplier))
+	# Mesma arena do item H: a felicidade do público multiplica o prêmio da rodada.
+	var gold_prize := int(round(float(maxi(0, gold_reward)) * multiplier * clampf(crowd_multiplier, 1.0, 2.0)))
 	var xp_gain := int(round(float(maxi(0, xp_reward)) * multiplier))
 	var leveled_up: bool = player.grant_experience(xp_gain)
 	tourney_prize += gold_prize

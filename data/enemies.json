@@ -3,6 +3,6 @@
   {"id": "livia", "display_name": "Lívia, a Falcão", "base_health": 42, "base_attack": 10, "base_defense": 2, "base_luck": 7},
   {"id": "maurus", "display_name": "Maurus, o Implacável", "base_health": 52, "base_attack": 7, "base_defense": 5, "base_luck": 3},
   {"id": "vettius", "display_name": "Véttius, o Mestre de Armas", "base_health": 60, "base_attack": 11, "base_defense": 6, "base_luck": 6},
-  {"id": "imperator", "display_name": "Imperador Cálvus", "base_health": 80, "base_attack": 13, "base_defense": 7, "base_luck": 8, "special": {"id": "fury", "display_name": "Fúria do Imperador", "description": "A cada três golpes, um ataque devastador e impreciso.", "multiplier": 2.0, "accuracy": 0.6}},
-  {"id": "grande_gladiador", "display_name": "O Grande Gladiador", "base_health": 120, "base_attack": 15, "base_defense": 9, "base_luck": 10, "special": {"id": "coliseum", "display_name": "Golpe do Coliseu", "description": "A cada três golpes, um golpe que atravessa a defesa.", "multiplier": 2.3, "accuracy": 0.65, "pierce": true}}
+  {"id": "imperator", "display_name": "Imperador Cálvus", "base_health": 80, "base_attack": 13, "base_defense": 7, "base_luck": 8, "boss": true, "special": {"id": "fury", "display_name": "Fúria do Imperador", "description": "A cada três golpes, um ataque devastador e impreciso.", "multiplier": 2.0, "accuracy": 0.6}},
+  {"id": "grande_gladiador", "display_name": "O Grande Gladiador", "base_health": 120, "base_attack": 15, "base_defense": 9, "base_luck": 10, "boss": true, "special": {"id": "coliseum", "display_name": "Golpe do Coliseu", "description": "A cada três golpes, um golpe que atravessa a defesa.", "multiplier": 2.3, "accuracy": 0.65, "pierce": true}}
 ]

@@ -73,6 +73,18 @@ func _run_test() -> void:
 	var attack_btn = _find_button(app, "GOLPE")
 	_check(attack_btn != null and attack_btn.disabled, "GOLPE desabilitado fora de alcance (melee a 3 passos)")
 	_check(_find_button_contains(app, "TAUNT:") != null, "ação TAUNT presente com a porcentagem na tela")
+	# Felicidade do público (item H): barra no topo + ação EXIBIR funcional.
+	_check(_find_label_contains(app, "PÚBLICO") != null, "arena mostra a barra de PÚBLICO no topo")
+	_check(arena.crowd != null and int(arena.crowd.value()) >= 0 and int(arena.crowd.value()) <= 100, "barra de público na faixa 0..100 (medido %d)" % int(arena.crowd.value()))
+	var exhibit_btn = _find_button(app, "EXIBIR")
+	_check(exhibit_btn != null, "ação EXIBIR presente na arena")
+	var crowd_before_exhibit: int = int(arena.crowd.value())
+	var rounds_before_exhibit: int = int(arena.round_number)
+	if exhibit_btn != null:
+		exhibit_btn.pressed.emit()
+		await get_tree().create_timer(0.7).timeout
+	_check(int(arena.round_number) == rounds_before_exhibit + 1, "EXIBIR gasta o turno (o inimigo age e a rodada avança)")
+	_check(int(arena.crowd.value()) != crowd_before_exhibit, "EXIBIR move a barra de público (%d → %d)" % [crowd_before_exhibit, int(arena.crowd.value())])
 	var round_before: int = int(arena.round_number)
 	arena.player_action("golpe")
 	await get_tree().create_timer(0.8).timeout
@@ -111,6 +123,9 @@ func _run_test() -> void:
 	_check(int(fought.experience) == expected_xp, "XP da vitória não é inflado pela sequência de vitórias (medido %d, esperado %d)" % [int(fought.experience), expected_xp])
 	_check(int(fought.gold) == expected_gold and int(fought.gold) > int(base_rewards.gold), "a sequência de vitórias aumenta o ouro da vitória (medido %d)" % int(fought.gold))
 	_check(GameState.player.gold == gold_before_kill + int(fought.gold), "o ouro do resumo bate com o ouro do personagem")
+	# Felicidade do público (item H): luta definida em ≤3 ações não multiplica o ouro.
+	_check(bool(fought.quick_fight) and is_equal_approx(float(fought.crowd_multiplier), 1.0), "luta de ≤3 ações não multiplica o ouro do público (×1,0)")
+	_check(_find_label_contains(app, "Público") != null, "tela de resultado mostra a linha do público")
 	# Subir de nível dá pontos de atributo (4 por nível) — distribuídos aqui.
 	_check(GameState.player.level > level_before_kill and GameState.player.pending_points > points_before_kill, "subir de nível gera pontos de atributo pendentes")
 	while GameState.player.pending_points > 0:

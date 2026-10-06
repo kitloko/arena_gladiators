@@ -22,6 +22,7 @@ extends SceneTree
 ## Com seed fixa, o resultado é reprodutível.
 
 const CombatResolverScript := preload("res://scripts/systems/combat_resolver.gd")
+const CrowdSystemScript := preload("res://scripts/systems/crowd_system.gd")
 const GladiatorDataScript := preload("res://scripts/models/gladiator_data.gd")
 const ContentRepositoryScript := preload("res://scripts/repositories/content_repository.gd")
 const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
@@ -42,6 +43,7 @@ func _initialize() -> void:
 	_test_free_arena_curve(items)
 	_test_player_always_favoured_early(items)
 	_test_tournament_is_winnable(enemies)
+	_test_crowd_gold_economy(items)
 
 	if _failures == 0:
 		print("PASS: balanceamento dentro das metas (curva de progressão e torneio).")
@@ -301,6 +303,70 @@ func _fight(player, foe) -> bool:
 		if player.is_defeated():
 			return false
 	return false
+
+# --- 6. Ouro por luta com o multiplicador do público (item H) ---------------
+
+## Mede o OURO por luta já com o multiplicador da felicidade do público (×1,0 a
+## ×2,0). A barra muda a economia: reporta o número por nível e trava o teto.
+func _test_crowd_gold_economy(items: Array) -> void:
+	print("")
+	print("--- felicidade do público: ouro por luta com o multiplicador médio ---")
+	var levels: Array[int] = [1, 3, 5, 8, 10, 15]
+	var samples := 1000
+	var min_avg := 9.0
+	var max_avg := 0.0
+	var min_gold := 999999.0
+	var max_gold := 0.0
+	for level: int in levels:
+		var total_mult := 0.0
+		var bare_gold := 0.0
+		var geared_gold := 0.0
+		for i in samples:
+			var foe = GladiatorDataScript.new(CombatResolverScript.generate_enemy(level, items))
+			var outcome: Dictionary = _crowd_fight(_make_player(level, false), foe)
+			total_mult += float(outcome.multiplier)
+			if bool(outcome.won):
+				bare_gold += float(EconomySystemScript.fight_rewards(level).gold) * float(foe.reward_multiplier) * float(outcome.multiplier)
+			var foe_g = GladiatorDataScript.new(CombatResolverScript.generate_enemy(level, items))
+			var outcome_g: Dictionary = _crowd_fight(_make_player(level, true), foe_g)
+			if bool(outcome_g.won):
+				geared_gold += float(EconomySystemScript.fight_rewards(level).gold) * float(foe_g.reward_multiplier) * float(outcome_g.multiplier)
+		var avg_mult := total_mult / float(samples)
+		var bare_per_fight := bare_gold / float(samples)
+		var geared_per_fight := geared_gold / float(samples)
+		min_avg = minf(min_avg, avg_mult)
+		max_avg = maxf(max_avg, avg_mult)
+		min_gold = minf(min_gold, bare_per_fight)
+		max_gold = maxf(max_gold, geared_per_fight)
+		print("  nível %2d | multiplicador médio ×%.2f | ouro/luta sem loja %.1f | com 2 peças %.1f" % [level, avg_mult, bare_per_fight, geared_per_fight])
+	print("  faixa do multiplicador médio: ×%.2f a ×%.2f | ouro/luta: %.1f a %.1f" % [min_avg, max_avg, min_gold, max_gold])
+	_check(min_avg >= 1.0, "o multiplicador médio do público nunca cai abaixo de ×1,0 (menor medido ×%.2f)" % min_avg)
+	_check(max_avg <= CrowdSystemScript.MULTIPLIER_MAX, "o multiplicador médio respeita o teto ×2,0 (maior medido ×%.2f)" % max_avg)
+	_check(max_avg > 1.05, "lutas reais rendem multiplicador de público acima de ×1,0 (maior médio ×%.2f)" % max_avg)
+	_check(min_gold > 0.0, "a arena livre paga ouro em todos os níveis mesmo sem loja (menor %.1f/luta)" % min_gold)
+
+## Troca de golpes com a barra de público (item H) movida pelos eventos reais.
+func _crowd_fight(player, foe) -> Dictionary:
+	var crowd = CrowdSystemScript.new(player, foe, false)
+	var guard := 0
+	while guard < 400:
+		guard += 1
+		var cold := true
+		crowd.register_action()
+		var hit: Dictionary = CombatResolverScript.resolve_attack(player, foe, 1.0, 1.0, 0)
+		crowd.apply_combat_result(hit, true)
+		if int(hit.get("health_damage", 0)) > 0 or int(hit.get("counter_health_damage", 0)) > 0:
+			cold = false
+		if foe.is_defeated():
+			return {"won": true, "multiplier": crowd.reward_multiplier()}
+		var enemy_hit: Dictionary = CombatResolverScript.resolve_attack(foe, player, 1.0, 1.0, 0)
+		crowd.apply_combat_result(enemy_hit, false)
+		if int(enemy_hit.get("health_damage", 0)) > 0 or int(enemy_hit.get("counter_health_damage", 0)) > 0:
+			cold = false
+		crowd.end_round(cold)
+		if player.is_defeated():
+			return {"won": false, "multiplier": 0.0}
+	return {"won": false, "multiplier": 0.0}
 
 func _check(condition: bool, label: String) -> void:
 	if condition:

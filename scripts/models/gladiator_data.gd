@@ -77,6 +77,9 @@ var enemy_reach: int = 1
 var enemy_tier: int = 1
 var reward_multiplier: float = 1.0
 var weapon_label: String = ""
+## Chefe (data/enemies.json "boss": true): usado pela felicidade do público, que
+## começa empolgada (piso 60) contra chefes.
+var boss: bool = false
 
 func _init(values: Dictionary = {}) -> void:
 	id = str(values.get("id", "unnamed"))
@@ -129,6 +132,7 @@ func _init(values: Dictionary = {}) -> void:
 	enemy_tier = int(values.get("enemy_tier", 1))
 	reward_multiplier = float(values.get("reward_multiplier", 1.0))
 	weapon_label = str(values.get("weapon_label", ""))
+	boss = bool(values.get("boss", false))
 	recompute_derived()
 	var requested_health := int(values.get("health", -1))
 	health = clampi(requested_health if requested_health >= 0 else max_health, 0, max_health)

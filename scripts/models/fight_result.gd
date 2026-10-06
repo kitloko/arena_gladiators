@@ -20,6 +20,12 @@ var campaign_lost: bool = false
 var penalty: int = 0
 var tournament: bool = false
 var prize: int = 0
+## Felicidade do público no fim da luta e o multiplicador de ouro resultante
+## (item H): ×1,0 a ×2,0. `quick_fight` = luta definida em até 3 ações (o
+## multiplicador é 1,0: "o público nem viu a luta"). A tela de resultado exibe.
+var crowd_happiness: int = 0
+var crowd_multiplier: float = 1.0
+var quick_fight: bool = false
 ## Itens ganhos na luta (prêmio de rodada de torneio e/ou item único do campeão).
 var loot: Array[Dictionary] = []
 

@@ -19,6 +19,12 @@ const BLOCK_PER_DEF := 0.010
 const BLOCK_CAP := 0.50
 ## Fração do golpe aparado quando a auto-defesa dispara ("aparou X, entrou Y").
 const BLOCK_FRACTION := 0.5
+## REVIDAR (contra-ataque): quando o alvo APARA, há uma chance de contra-atacar e
+## devolver parte do que aparou. PROPOSTA do item H §4: 50% de chance e 60% do
+## valor aparado de volta ao atacante, consumindo armadura antes da vida. O dano
+## do revidar é MENOR que o do golpe aparado, então aparar ainda compensa.
+const COUNTER_CHANCE := 0.5
+const COUNTER_DAMAGE_FRACTION := 0.6
 ## Mitigação direta por DEF já usada na curva de dano calibrada.
 const DEF_MITIGATION := 0.55
 const CRIT_MULTIPLIER := 1.55
@@ -278,6 +284,8 @@ static func resolve_attack(attacker, defender, multiplier: float = 1.0, accuracy
 		"hit": false, "missed": false, "dodged": false, "blocked": false,
 		"blocked_amount": 0, "damage": 0, "entered": 0, "armour_damage": 0,
 		"health_damage": 0, "critical": false, "out_of_range": false,
+		"countered": false, "counter_damage": 0, "counter_armour_damage": 0,
+		"counter_health_damage": 0,
 	}
 	if attacker == null or defender == null:
 		return result
@@ -302,6 +310,7 @@ static func resolve_attack(attacker, defender, multiplier: float = 1.0, accuracy
 		damage = maxi(1, roundi(float(damage) * (1.0 - reduction)))
 	# (5) Auto-defesa: a DEF do alvo apara parte do golpe ("aparou X, entrou Y").
 	var blocked_amount := 0
+	var countered := false
 	if randf() < block_chance(defender):
 		blocked_amount = maxi(0, roundi(float(damage) * BLOCK_FRACTION))
 	var entered := maxi(0, damage - blocked_amount)
@@ -315,6 +324,17 @@ static func resolve_attack(attacker, defender, multiplier: float = 1.0, accuracy
 	result["entered"] = entered
 	result["armour_damage"] = int(split.get("armour", 0))
 	result["health_damage"] = int(split.get("health", 0))
+	# (7) REVIDAR: quem aparou pode contra-atacar devolvendo parte do aparado ao
+	# atacante (o contra-golpe é MENOR que o golpe original). Isso alimenta o
+	# evento +5 da felicidade do público.
+	if blocked_amount > 0 and randf() < COUNTER_CHANCE:
+		countered = true
+		var counter_damage := maxi(1, roundi(float(blocked_amount) * COUNTER_DAMAGE_FRACTION))
+		var counter_split: Dictionary = attacker.absorb_damage(counter_damage)
+		result["countered"] = true
+		result["counter_damage"] = counter_damage
+		result["counter_armour_damage"] = int(counter_split.get("armour", 0))
+		result["counter_health_damage"] = int(counter_split.get("health", 0))
 	return result
 
 static func enemy_for_level(level: int, template: Dictionary):
@@ -335,6 +355,7 @@ static func enemy_for_level(level: int, template: Dictionary):
 		"base_agility": 4 + int(round(float(safe_level - 1) * 0.4)),
 		"base_charisma": int(template.get("base_luck", 4)) + (safe_level - 1) * 2,
 		"base_luck": int(template.get("base_luck", 4)) + (safe_level - 1) * 2,
+		"boss": bool(template.get("boss", false)),
 	})
 
 ## Decisão simples do inimigo: 22% de chance de golpe arriscado, senão ataque normal.
@@ -412,7 +433,7 @@ static func ranged_accuracy(accuracy: float, distance: int) -> float:
 ## ranged aplica a penalidade de distância na precisão.
 static func resolve_positional_attack(attacker, defender, weapon: Dictionary, distance: int, multiplier: float = 1.0, accuracy: float = 1.0, guard_bonus: int = 0, penalty_scale: float = 1.0) -> Dictionary:
 	if not can_attack_at(distance, weapon):
-		return {"hit": false, "missed": false, "dodged": false, "blocked": false, "blocked_amount": 0, "damage": 0, "entered": 0, "armour_damage": 0, "health_damage": 0, "critical": false, "out_of_range": true}
+		return {"hit": false, "missed": false, "dodged": false, "blocked": false, "blocked_amount": 0, "damage": 0, "entered": 0, "armour_damage": 0, "health_damage": 0, "critical": false, "out_of_range": true, "countered": false, "counter_damage": 0, "counter_armour_damage": 0, "counter_health_damage": 0}
 	var effective_accuracy := accuracy
 	if weapon_kind(weapon) == "ranged":
 		effective_accuracy = ranged_accuracy_scaled(accuracy, distance, penalty_scale)
