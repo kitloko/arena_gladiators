@@ -11,6 +11,7 @@ signal closed
 
 const ContentRepositoryScript := preload("res://scripts/repositories/content_repository.gd")
 const ItemGeneratorScript := preload("res://scripts/systems/item_generator.gd")
+const PotionSystemScript := preload("res://scripts/systems/potion_system.gd")
 const SLOT_TITLES := {
 	"weapon": "ARMA", "armor": "ARMADURA", "helmet": "CAPACETE",
 	"gloves": "LUVAS", "boots": "BOTAS", "belt": "CINTO",
@@ -40,9 +41,14 @@ var _list: VBoxContainer
 var _scroll: ScrollContainer
 var _reroll_button: Button
 var _status_label: Label
+## Mensagem da última ação (pechincha etc.) mostrada junto do ouro.
+var _flash_text := ""
+var _flash_color := MUTED
 
 func _ready() -> void:
 	_categories = ItemGeneratorScript.top_categories()
+	# POÇÕES (item 6): categoria fixa de consumíveis de combate (data/items.json).
+	_categories.append({"id": "pocoes", "label": "POÇÕES", "subtypes": [{"id": "pocoes", "label": "Consumíveis de combate"}]})
 	GameState.ensure_shop_stock()
 	_select_category(_category, true)
 	_build_interface()
@@ -139,6 +145,17 @@ func _update_status() -> void:
 		_status_label.text = ""
 		return
 	_status_label.text = "Nível %d  •  %d ouro" % [GameState.player.level, GameState.player.gold]
+	if _flash_text != "":
+		_status_label.text += "   —   " + _flash_text
+		_status_label.add_theme_color_override("font_color", _flash_color)
+	else:
+		_status_label.add_theme_color_override("font_color", MUTED)
+
+## Mostra uma mensagem curta na linha de status (resultado da pechincha etc.).
+func _flash(text_value: String, color: Color) -> void:
+	_flash_text = text_value
+	_flash_color = color
+	_update_status()
 
 func _render_category_buttons() -> void:
 	for child in _category_row.get_children():
@@ -236,24 +253,38 @@ func _make_row(item: Dictionary) -> PanelContainer:
 	title_row.add_child(title_spacer)
 	title_row.add_child(_make_label("%s  •  nível %d" % [rarity_label, item_level], 12, DIM))
 	info.add_child(title_row)
+	var consumable := str(item.get("slot", "")) == "consumable"
 	var bonuses := _bonus_text(item)
+	if consumable:
+		bonuses = PotionSystemScript.effect_label(item)
 	var kind_hint := _kind_text(item)
 	info.add_child(_make_label("%s%s" % [bonuses, ("  •  %s" % kind_hint) if kind_hint != "" else ""], 13, GREEN))
 	var slot_title := str(SLOT_TITLES.get(str(item.get("slot", "weapon")), "ITEM"))
 	var buy_price := GameState.item_price(item)
 	var price_label := "Lugar: %s  •  %d ouro" % [slot_title, buy_price]
 	if buy_price < int(item.get("price", 0)):
-		price_label += "  (pechincha)"
+		price_label += "  (preço com desconto)"
 	info.add_child(_make_label(price_label, 12, DIM))
 	_add_equip_comparison(info, item)
-	var action := CenterContainer.new()
-	var button := Button.new()
-	button.custom_minimum_size = Vector2(170, 46)
-	button.add_theme_font_size_override("font_size", 14)
 	var item_id := str(item.get("id", ""))
 	var slot := str(item.get("slot", "weapon"))
+	var action := VBoxContainer.new()
+	action.alignment = BoxContainer.ALIGNMENT_CENTER
+	action.add_theme_constant_override("separation", 4)
+	var button := Button.new()
+	button.custom_minimum_size = Vector2(180, 46)
+	button.add_theme_font_size_override("font_size", 14)
 	var equipped_id: String = GameState.player.equipped_id(slot) if GameState.player != null else ""
-	if equipped_id == item_id:
+	if consumable:
+		# POÇÃO (item 6): a compra vai para a BOLSA, com limite de mochila; pode repetir.
+		var carried := PotionSystemScript.count(GameState.player)
+		var full := carried >= PotionSystemScript.MAX_POTIONS
+		button.text = ("MOCHILA CHEIA (%d/%d)" % [carried, PotionSystemScript.MAX_POTIONS]) if full else "COMPRAR"
+		button.disabled = full or GameState.player.gold < buy_price
+		button.pressed.connect(GameState.purchase_item.bind(item))
+		button.pressed.connect(_on_mutation)
+		_style_button(button, GOLD)
+	elif equipped_id == item_id:
 		button.text = "Equipado"
 		button.disabled = true
 		_style_button(button, Color("4a4154"))
@@ -263,15 +294,51 @@ func _make_row(item: Dictionary) -> PanelContainer:
 		button.pressed.connect(_on_mutation)
 		_style_button(button, Color("70b9e8"))
 	else:
-		var price := GameState.item_price(item)
 		button.text = "COMPRAR"
-		button.disabled = GameState.player.gold < price
+		button.disabled = GameState.player.gold < buy_price
 		button.pressed.connect(GameState.purchase_item.bind(item))
 		button.pressed.connect(_on_mutation)
 		_style_button(button, GOLD)
 	action.add_child(button)
+	# PECHINCHA (item 4): tentativa única por item; falhar TRAVA aquele item.
+	var haggle_button := _make_haggle_button(item)
+	if haggle_button != null:
+		action.add_child(haggle_button)
 	hbox.add_child(action)
 	return panel
+
+## Botão PECHINCHAR do item: mostra a chance (CHA/SOR) e o estado da tentativa.
+## Depois de pechinchado (ganho OU perdido) o item fica travado para sempre.
+func _make_haggle_button(item: Dictionary) -> Button:
+	if GameState.player == null:
+		return null
+	var item_id := str(item.get("id", ""))
+	var button := Button.new()
+	button.custom_minimum_size = Vector2(180, 32)
+	button.add_theme_font_size_override("font_size", 12)
+	if GameState.haggle_attempted(item_id):
+		if GameState.haggle_result(item_id) == "won":
+			button.text = "PECHINCHA: SUCESSO"
+		else:
+			button.text = "PECHINCHA: TRAVADA"
+		button.disabled = true
+		_style_button(button, Color("4a4154"))
+		return button
+	button.text = "PECHINCHAR (%d%%)" % int(round(GameState.haggle_chance() * 100.0))
+	button.pressed.connect(_on_haggle.bind(item))
+	_style_button(button, ABILITY)
+	return button
+
+## Tenta pechinchar: aplica a regra do HaggleSystem (uma vez por item, falha trava).
+func _on_haggle(item: Dictionary) -> void:
+	var info: Dictionary = GameState.haggle(item)
+	if bool(info.get("success", false)):
+		_flash("Pechincha certa: %d%% de desconto!" % int(round(float(info.get("discount", 0.0)) * 100.0)), GREEN)
+	elif bool(info.get("ok", false)):
+		_flash("O comerciante não cedeu — o item ficou TRAVADO no preço normal.", RED)
+	else:
+		_flash(str(info.get("reason", "não foi possível pechinchar")), DIM)
+	_render.call_deferred()
 
 func _bonus_text(item: Dictionary) -> String:
 	var parts: Array[String] = []

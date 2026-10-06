@@ -173,11 +173,22 @@ func _refresh() -> void:
 	var rank_line := "[color=#f5c451]RANK %s (%d pts — %s)[/color]   [color=#cdbfd5]KD %d V / %d D[/color]" % [
 		RankSystemScript.title_for(p.rank_points), p.rank_points, rank_progress, p.wins, p.losses,
 	]
-	_attributes.text = "[color=#f5c451]%s[/color]  •  Nível %d  •  %d ouro\n[color=#79cf7b]VIDA %d/%d[/color]   [color=#70b9e8]ARMADURA %d/%d[/color]\n%s\n[color=#bbaec1]FOR %d   ATT %d   DEF %d   AGI %d   VIT %d   CAR %d   SOR %d[/color]\n[color=#bbaec1]Equipado: %d de 6 slots   •   itens na bolsa: %d[/color]%s" % [
+	# FERIMENTOS (item 2): sequelas persistentes que reduzem os atributos acima
+	# e só saem com o médico pago (ou uma poção de ferimento em combate).
+	var injury_line := ""
+	var injuries: Array = GameState.injuries()
+	if injuries.is_empty():
+		injury_line = "\n[color=#79cf7b]SEM FERIMENTOS[/color]"
+	else:
+		var injury_parts: Array[String] = []
+		for injury: Dictionary in injuries:
+			injury_parts.append(str(injury.get("label", "ferimento")))
+		injury_line = "\n[color=#e08a8a]FERIMENTOS (%d/%d): %s[/color]" % [injuries.size(), 2, "   •   ".join(injury_parts)]
+	_attributes.text = "[color=#f5c451]%s[/color]  •  Nível %d  •  %d ouro\n[color=#79cf7b]VIDA %d/%d[/color]   [color=#70b9e8]ARMADURA %d/%d[/color]\n%s\n[color=#bbaec1]FOR %d   ATT %d   DEF %d   AGI %d   VIT %d   CAR %d   SOR %d[/color]\n[color=#bbaec1]Equipado: %d de 6 slots   •   itens na bolsa: %d[/color]%s%s" % [
 		p.display_name, p.level, p.gold, p.health, p.max_health, p.armour, p.max_armour,
 		rank_line,
 		p.strength, p.attack, p.defence, p.agility, p.vitality, p.charisma, p.luck,
-		_equipped_count(), p.bag_items().size(), pending,
+		_equipped_count(), p.bag_items().size(), pending, injury_line,
 	]
 	_xp_label.text = "XP %d / %d para o nível %d" % [p.experience, p.required_experience(), p.level + 1]
 	for child in _equipment_grid.get_children():

@@ -7,6 +7,11 @@ const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
 const ItemGeneratorScript := preload("res://scripts/systems/item_generator.gd")
 const SaveSystemScript := preload("res://scripts/systems/save_system.gd")
 const RankSystemScript := preload("res://scripts/systems/rank_system.gd")
+const InjurySystemScript := preload("res://scripts/systems/injury_system.gd")
+const HaggleSystemScript := preload("res://scripts/systems/haggle_system.gd")
+const BettingSystemScript := preload("res://scripts/systems/betting_system.gd")
+const PotionSystemScript := preload("res://scripts/systems/potion_system.gd")
+const PresentationSystemScript := preload("res://scripts/systems/presentation_system.gd")
 
 ## Teto duro do multiplicador do público na entrada de on_victory. O teto REAL
 ## depende do rank (CrowdSystem.reward_multiplier), que passa de ×2,0 nas faixas
@@ -41,6 +46,14 @@ var _tiers: Array[Dictionary] = []
 ## gerado — rerolha de graça quando o jogador sobe de nível.
 var shop_stock: Dictionary = {}
 var _shop_roll_level: int = -1
+
+## APOSTA (item 5): ouro apostado no combate corrente e a odd travada no momento
+## da entrada na arena. A aposta é paga/perdida em on_victory/on_defeat.
+var current_bet: int = 0
+var current_bet_odd: float = 0.0
+## POÇÕES (item 6): a poção só pode ser usada DURANTE a luta (a arena liga/desliga
+## este sinal). Fora do ringue a bolsa não oferece "usar".
+var in_combat: bool = false
 
 func _ready() -> void:
 	_stages = ContentRepositoryScript.load_campaign()
@@ -284,9 +297,15 @@ func player_rank_title() -> String:
 ## precisa mostrar (gold de bolso na Arena Livre; prêmio acumulado no torneio).
 ## `crowd_multiplier` é o multiplicador da felicidade do público (item H, ×1,0 a
 ## ×2,0) e vale UMA vez, no fim da luta, só sobre o OURO.
-func on_victory(gold_reward: int, xp_reward: int, crowd_multiplier: float = 1.0) -> Dictionary:
+func on_victory(gold_reward: int, xp_reward: int, crowd_multiplier: float = 1.0, took_critical: bool = false) -> Dictionary:
 	if player == null:
 		return {"gold": 0, "prize": 0, "experience": 0, "leveled_up": false, "campaign_cleared": false, "tournament": false}
+	# Fim de luta: buffs temporários de poção (item 6) expiram com o combate.
+	player.clear_buffs()
+	# APOSTA (item 5): aposta vencida paga aposta × odd.
+	var bet_info: Dictionary = settle_bet(true)
+	# FERIMENTO (item 2): vencer tomando um crítico forte ainda pode deixar sequela.
+	var injury_info: Dictionary = InjurySystemScript.after_fight(player, true, took_critical)
 	# RANK/KD (item I): vencer move o rank conforme a força do adversário.
 	var rank_info: Dictionary = apply_rank_result(true)
 	# O teto do público sobe com o rank (arena mais lotada): o clamp NÃO pode
@@ -298,6 +317,8 @@ func on_victory(gold_reward: int, xp_reward: int, crowd_multiplier: float = 1.0)
 	else:
 		result = _on_free_victory(gold_reward, xp_reward, crowd)
 	result["rank"] = rank_info
+	result["bet"] = bet_info
+	result["injury"] = injury_info
 	return result
 
 ## Vitória na Arena Livre. A FAIXA DE ARENA (ideia 9) multiplica o ouro: faixas
@@ -414,15 +435,24 @@ func sell_item(item_id: String) -> Dictionary:
 
 ## Derrota: Arena Livre perde 25% do ouro e acorda curado (segue o jogo);
 ## Torneio encerra a inscrição e devolve apenas metade do prêmio acumulado.
-func on_defeat() -> Dictionary:
+func on_defeat(took_critical: bool = false) -> Dictionary:
+	# Fim de luta: buffs temporários de poção (item 6) expiram.
+	if player != null:
+		player.clear_buffs()
+	# APOSTA (item 5): aposta perdida queima o ouro apostado.
+	var bet_info: Dictionary = settle_bet(false)
 	# RANK/KD (item I): perder SEMPRE tira pontos (perder para rank menor dói mais).
 	var rank_info: Dictionary = apply_rank_result(false)
+	# FERIMENTO (item 2): perder pode deixar sequela persistente (crítico forte piora).
+	var injury_info: Dictionary = InjurySystemScript.after_fight(player, false, took_critical)
 	var result: Dictionary
 	if mode == "tournament":
 		result = _on_tournament_defeat()
 	else:
 		result = _on_free_defeat()
 	result["rank"] = rank_info
+	result["bet"] = bet_info
+	result["injury"] = injury_info
 	return result
 
 func _on_free_defeat() -> Dictionary:
@@ -499,8 +529,19 @@ func ensure_shop_stock() -> Dictionary:
 	return shop_stock
 
 func shop_stock_for(subtype: String) -> Array:
+	# POÇÕES (item 6): consumíveis fixos de data/items.json, sempre à venda.
+	if subtype == "pocoes":
+		return consumable_catalog()
 	ensure_shop_stock()
 	return shop_stock.get(subtype, [])
+
+## Consumíveis de conteúdo (data/items.json) — o estoque de POÇÕES da loja.
+func consumable_catalog() -> Array:
+	var potions: Array = []
+	for item: Dictionary in ContentRepositoryScript.load_items():
+		if PotionSystemScript.is_consumable(item):
+			potions.append(item)
+	return potions
 
 func shop_reroll_cost() -> int:
 	return EconomySystemScript.shop_reroll_cost(player.level if player != null else 1)
@@ -562,6 +603,15 @@ func purchase_item(item: Dictionary) -> bool:
 	var price := EconomySystemScript.price_for_player(item, player)
 	if player.gold < price:
 		return false
+	# POÇÃO (item 6): consumível vai para a BOLSA (nunca equipa), com teto de mochila.
+	if PotionSystemScript.is_consumable(item):
+		if PotionSystemScript.count(player) >= PotionSystemScript.MAX_POTIONS:
+			return false
+		player.gold -= price
+		player.remember_item(item)
+		player_changed.emit(player)
+		save_progress()
+		return true
 	player.gold -= price
 	equip_item(item)
 	return true
@@ -615,4 +665,239 @@ func enemy_special(enemy_id: String) -> Dictionary:
 	var enemies := ContentRepositoryScript.load_enemies()
 	var template := ContentRepositoryScript.find_enemy(enemies, enemy_id)
 	return template.get("special", {})
+
+# --- FERIMENTOS persistentes (item 2) --------------------------------------
+
+## Ferimentos ativos do jogador (lista de dicionários).
+func injuries() -> Array:
+	return player.injuries if player != null else []
+
+func injury_count() -> int:
+	return injuries().size()
+
+func injury_summary() -> String:
+	return InjurySystemScript.summary(player)
+
+## Cura TODOS os ferimentos (só o médico chama isto; a poção cura um).
+func heal_injuries() -> int:
+	return InjurySystemScript.cure_all(player)
+
+# --- PECHINCHA (item 4) ----------------------------------------------------
+
+## Tenta pechinchar um item da loja (uma vez por item; falhar trava aquele item).
+func haggle(item: Dictionary) -> Dictionary:
+	if player == null or item.is_empty():
+		return {"ok": false, "reason": "sem item"}
+	var info: Dictionary = HaggleSystemScript.attempt(player, str(item.get("id", "")))
+	if bool(info.get("ok", false)):
+		player_changed.emit(player)
+		save_progress()
+	return info
+
+func haggle_attempted(item_id: String) -> bool:
+	return HaggleSystemScript.attempted(player, item_id)
+
+func haggle_result(item_id: String) -> String:
+	return str(HaggleSystemScript.mark_for(player, item_id).get("result", ""))
+
+func haggle_chance() -> float:
+	return HaggleSystemScript.success_chance(player)
+
+# --- APOSTA no próprio combate (item 5) ------------------------------------
+
+## Odd da aposta para o adversário atual (Índice de Poder dos dois).
+func bet_odd() -> float:
+	if player == null:
+		return 1.0
+	var enemy_power := 0
+	if current_enemy != null:
+		enemy_power = PresentationSystemScript.power_index(current_enemy)
+	return BettingSystemScript.odd_for(PresentationSystemScript.power_index(player), enemy_power)
+
+func max_bet() -> int:
+	return BettingSystemScript.max_bet(player)
+
+## Aposta ouro em si mesmo. A odd fica travada AGORA; o pagamento sai no resultado.
+func place_bet(amount: int) -> Dictionary:
+	if player == null:
+		return {"ok": false, "stake": 0, "odd": 0.0, "reason": "sem lutador"}
+	var stake: int = maxi(0, mini(int(amount), max_bet()))
+	if stake <= 0:
+		return {"ok": false, "stake": 0, "odd": 0.0, "reason": "sem ouro para apostar"}
+	player.gold -= stake
+	current_bet = stake
+	current_bet_odd = bet_odd()
+	player_changed.emit(player)
+	return {"ok": true, "stake": stake, "odd": current_bet_odd, "payout": BettingSystemScript.payout(stake, current_bet_odd), "net": BettingSystemScript.net_win(stake, current_bet_odd)}
+
+func reset_bet() -> void:
+	current_bet = 0
+	current_bet_odd = 0.0
+
+## Resolve a aposta no fim da luta: ganhar paga aposta × odd; perder já queimou o
+## ouro na hora da aposta (nada a devolver). Devolve o que a tela de resultado mostra.
+func settle_bet(won: bool) -> Dictionary:
+	var info := {"active": current_bet > 0, "stake": current_bet, "odd": current_bet_odd, "won": won, "payout": 0, "bet": current_bet}
+	if current_bet <= 0:
+		reset_bet()
+		return info
+	if won and player != null:
+		var payout: int = BettingSystemScript.payout(current_bet, current_bet_odd)
+		player.gold += payout
+		info["payout"] = payout
+	reset_bet()
+	return info
+
+# --- POÇÕES em combate (item 6) --------------------------------------------
+
+func consumable_count() -> int:
+	return PotionSystemScript.count(player)
+
+func potions() -> Array[Dictionary]:
+	return PotionSystemScript.potions(player)
+
+## Usa uma poção DURANTE a luta: aplica o efeito e CONSOME o item. Fora da luta a
+## interface não oferece o botão — a poção é remédio de ringue (a cidade tem o
+## médico pago para curar).
+func use_potion(item_id: String) -> Dictionary:
+	if player == null:
+		return {"ok": false, "reason": "sem lutador"}
+	if not in_combat:
+		return {"ok": false, "reason": "poção só pode ser usada durante a luta"}
+	var item: Dictionary = item_data(item_id)
+	if not PotionSystemScript.is_consumable(item):
+		return {"ok": false, "reason": "não é poção"}
+	var effect: Dictionary = PotionSystemScript.use(player, item)
+	if not bool(effect.get("ok", false)):
+		return effect
+	if not player.remove_owned(item_id):
+		return {"ok": false, "reason": "poção não está na bolsa"}
+	effect["item"] = item
+	player_changed.emit(player)
+	return effect
+
+# --- Serviços da cidade (item 10) ------------------------------------------
+
+## Custo do médico (vida + armadura faltantes + TODOS os ferimentos).
+func doctor_cost() -> int:
+	return EconomySystemScript.doctor_cost(player)
+
+## MÉDICO: cobra e cura vida, armadura e todos os ferimentos.
+func visit_doctor() -> Dictionary:
+	var info := {"ok": false, "cost": 0, "cured": 0, "healed": 0, "reason": ""}
+	if player == null:
+		info["reason"] = "sem lutador"
+		return info
+	var cost: int = doctor_cost()
+	info["cost"] = cost
+	if cost <= 0:
+		info["ok"] = true
+		info["reason"] = "nada a tratar"
+		return info
+	if player.gold < cost:
+		info["reason"] = "ouro insuficiente"
+		return info
+	player.gold -= cost
+	var missing: int = int(player.missing_pool())
+	player.heal_full()
+	var cured: int = InjurySystemScript.cure_all(player)
+	info["ok"] = true
+	info["cured"] = cured
+	info["healed"] = missing
+	player_changed.emit(player)
+	save_progress()
+	return info
+
+## FERREIRO: estado de melhoria de um item (custo, melhorias, teto, armadura).
+func smith_max_upgrades() -> int:
+	return EconomySystemScript.blacksmith_max()
+
+func smith_info(item_id: String) -> Dictionary:
+	var max_upgrades := EconomySystemScript.blacksmith_max()
+	var item: Dictionary = item_data(item_id)
+	if item.is_empty():
+		return {"ok": false, "reason": "item desconhecido", "cost": 0, "upgrades": 0, "max": max_upgrades, "armour": 0}
+	var armour := int(item.get("armour", 0))
+	var upgrades := int(item.get("upgrades", 0))
+	if armour <= 0:
+		return {"ok": false, "reason": "só peças com armadura podem ser melhoradas", "cost": 0, "upgrades": upgrades, "max": max_upgrades, "armour": armour}
+	var maxed := upgrades >= max_upgrades
+	return {"ok": not maxed, "reason": "melhoria máxima" if maxed else "", "cost": EconomySystemScript.blacksmith_cost(item, upgrades), "upgrades": upgrades, "max": max_upgrades, "armour": armour}
+
+## FERREIRO: melhora +1 de armadura de um item pelo preço certo, respeitando o teto.
+func smith_upgrade(item_id: String) -> Dictionary:
+	var info := {"ok": false, "cost": 0, "upgrades": 0, "armour": 0, "reason": ""}
+	if player == null:
+		info["reason"] = "sem lutador"
+		return info
+	if not player.owns_item(item_id):
+		info["reason"] = "item não é seu"
+		return info
+	var state: Dictionary = smith_info(item_id)
+	info["cost"] = int(state.get("cost", 0))
+	info["upgrades"] = int(state.get("upgrades", 0))
+	info["armour"] = int(state.get("armour", 0))
+	if not bool(state.get("ok", false)):
+		info["reason"] = str(state.get("reason", "não é possível melhorar"))
+		return info
+	var cost := int(state.get("cost", 0))
+	if player.gold < cost:
+		info["reason"] = "ouro insuficiente"
+		return info
+	player.gold -= cost
+	var item: Dictionary = item_data(item_id)
+	item["armour"] = int(item.get("armour", 0)) + EconomySystemScript.BLACKSMITH_ARMOUR_PER_UPGRADE
+	item["upgrades"] = int(state.get("upgrades", 0)) + 1
+	player.remember_item(item)
+	# Se o item está equipado, reequipa para a proteção nova valer já.
+	for slot: String in ["weapon", "armor", "helmet", "gloves", "boots", "belt"]:
+		if player.equipped_id(slot) == item_id:
+			player.equip_item(item)
+			break
+	info["ok"] = true
+	info["armour"] = int(item.get("armour", 0))
+	info["upgrades"] = int(item.get("upgrades", 0))
+	player_changed.emit(player)
+	save_progress()
+	return info
+
+## TREINADOR: teto de XP comprável neste nível e o ganho de UMA sessão (com o teto).
+func trainer_cap() -> int:
+	return EconomySystemScript.trainer_cap(player)
+
+func trainer_cost() -> int:
+	return EconomySystemScript.trainer_cost(player)
+
+func trained_xp() -> int:
+	return int(player.trained_xp) if player != null else 0
+
+func trainer_gain() -> int:
+	if player == null:
+		return 0
+	var remaining := maxi(0, trainer_cap() - trained_xp())
+	return mini(EconomySystemScript.trainer_gain(player), remaining)
+
+## TREINADOR: paga ouro e ganha XP, respeitando o teto por nível.
+func train() -> Dictionary:
+	var info := {"ok": false, "xp": 0, "cost": 0, "leveled_up": false, "reason": ""}
+	if player == null:
+		info["reason"] = "sem lutador"
+		return info
+	var gain := trainer_gain()
+	var cost := trainer_cost()
+	info["cost"] = cost
+	if gain <= 0:
+		info["reason"] = "teto de treino do nível atingido"
+		return info
+	if player.gold < cost:
+		info["reason"] = "ouro insuficiente"
+		return info
+	player.gold -= cost
+	player.trained_xp += gain
+	info["ok"] = true
+	info["xp"] = gain
+	info["leveled_up"] = player.grant_experience(gain)
+	player_changed.emit(player)
+	save_progress()
+	return info
 

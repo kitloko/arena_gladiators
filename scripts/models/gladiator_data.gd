@@ -88,6 +88,20 @@ var weapon_label: String = ""
 ## começa empolgada (piso 60) contra chefes.
 var boss: bool = false
 
+## FERIMENTOS PERSISTENTES (item 2): sobrevivem à luta e só o MÉDICO (ou uma poção
+## de ferimento) cura. Cada um é {id, label, attr, short, penalty} e reduz de
+## verdade o atributo derivado (recompute_derived). Teto e não-duplicata são
+## regra do InjurySystem.
+var injuries: Array = []
+## PECHINCHA (item 4): desconto já negociado por item — {item_id: {result, discount}}.
+## A existência da marca (ganha OU perdida) trava uma segunda tentativa.
+var haggle_marks: Dictionary = {}
+## XP comprado do TREINADOR neste nível (item 10): teto por nível, zera ao subir.
+var trained_xp: int = 0
+## Buffs TEMPORÁRIOS de combate (poção, item 6): [{attr, amount, turns}]. Não é
+## salvo — vive só durante a luta.
+var buffs: Array = []
+
 func _init(values: Dictionary = {}) -> void:
 	id = str(values.get("id", "unnamed"))
 	display_name = str(values.get("display_name", "Gladiador"))
@@ -144,6 +158,10 @@ func _init(values: Dictionary = {}) -> void:
 	reward_multiplier = float(values.get("reward_multiplier", 1.0))
 	weapon_label = str(values.get("weapon_label", ""))
 	boss = bool(values.get("boss", false))
+	injuries = _load_injuries(values.get("injuries", []))
+	haggle_marks = _load_marks(values.get("haggle_marks", {}))
+	trained_xp = maxi(0, int(values.get("trained_xp", 0)))
+	buffs = []
 	recompute_derived()
 	var requested_health := int(values.get("health", -1))
 	health = clampi(requested_health if requested_health >= 0 else max_health, 0, max_health)
@@ -196,6 +214,51 @@ func recompute_derived() -> void:
 		charisma += int(bonus.get("cha", 0))
 		luck += int(bonus.get("luck", 0))
 		armour_sum += int(bonus.get("armour", 0))
+	# Buffs TEMPORÁRIOS de combate (poção, item 6): somam ao derivado enquanto duram.
+	for buff: Variant in buffs:
+		if not buff is Dictionary:
+			continue
+		var entry: Dictionary = buff
+		var amount := int(entry.get("amount", 0))
+		match str(entry.get("attr", "")):
+			"strength":
+				strength += amount
+			"attack":
+				attack += amount
+			"defence":
+				defence += amount
+			"agility":
+				agility += amount
+			"vitality":
+				vitality += amount
+			"charisma":
+				charisma += amount
+			"luck":
+				luck += amount
+	# FERIMENTOS persistentes (item 2): reduzem o derivado e NUNCA zeram um
+	# atributo (piso 1). Só o médico/poção tira a penalidade.
+	for injury: Variant in injuries:
+		if not injury is Dictionary:
+			continue
+		var hurt: Dictionary = injury
+		var penalty := int(hurt.get("penalty", 0))
+		if penalty <= 0:
+			continue
+		match str(hurt.get("attr", "")):
+			"strength":
+				strength = maxi(1, strength - penalty)
+			"attack":
+				attack = maxi(1, attack - penalty)
+			"defence":
+				defence = maxi(1, defence - penalty)
+			"agility":
+				agility = maxi(1, agility - penalty)
+			"vitality":
+				vitality = maxi(1, vitality - penalty)
+			"charisma":
+				charisma = maxi(1, charisma - penalty)
+			"luck":
+				luck = maxi(1, luck - penalty)
 	max_health = HEALTH_BASE + vitality * HEALTH_PER_VIT
 	max_armour = armour_sum
 	health = mini(health, max_health)
@@ -335,6 +398,8 @@ func grant_experience(amount: int) -> bool:
 		experience -= required_experience()
 		level += 1
 		pending_points += EconomySystemScript.attribute_points_per_level()
+		# O teto do TREINADOR é POR NÍVEL: ao subir, libera de novo.
+		trained_xp = 0
 		leveled_up = true
 	return leveled_up
 
@@ -379,6 +444,57 @@ func _base_field_for(attribute_id: String) -> String:
 func audience_favour() -> int:
 	return crowd_happiness
 
+# --- Buffs temporários de combate (poção, item 6) --------------------------
+
+## Soma um buff temporário ao derivado enquanto durar (não é salvo).
+func add_buff(attribute_id: String, amount: int, turns: int) -> void:
+	if amount == 0 or turns <= 0:
+		return
+	buffs.append({"attr": attribute_id, "amount": amount, "turns": turns})
+	recompute_derived()
+
+## Passa um turno: cada buff dura um turno menos e os expirados saem. Devolve os
+## que expiraram (para o log).
+func tick_buffs() -> Array:
+	var expired: Array = []
+	var remaining: Array = []
+	for buff: Variant in buffs:
+		if not buff is Dictionary:
+			continue
+		var entry: Dictionary = buff
+		entry["turns"] = int(entry.get("turns", 0)) - 1
+		if int(entry["turns"]) > 0:
+			remaining.append(entry)
+		else:
+			expired.append(entry)
+	buffs = remaining
+	if not expired.is_empty():
+		recompute_derived()
+	return expired
+
+func clear_buffs() -> void:
+	if buffs.is_empty():
+		return
+	buffs = []
+	recompute_derived()
+
+func has_active_buffs() -> bool:
+	return not buffs.is_empty()
+
+func buff_summary() -> String:
+	var parts: Array[String] = []
+	for buff: Variant in buffs:
+		if buff is Dictionary:
+			var entry: Dictionary = buff
+			parts.append("%s +%d (%dt)" % [str(entry.get("attr", "")), int(entry.get("amount", 0)), int(entry.get("turns", 0))])
+	return ", ".join(parts)
+
+# --- Pechincha (item 4) ----------------------------------------------------
+
+## Marca de pechincha de um item ({result, discount}) ou {} se nunca tentou.
+func haggle_mark_for(item_id: String) -> Dictionary:
+	return haggle_marks.get(item_id, {}) if haggle_marks.has(item_id) else {}
+
 func to_save_data() -> Dictionary:
 	return {
 		"attrs_version": ATTRS_VERSION,
@@ -393,6 +509,9 @@ func to_save_data() -> Dictionary:
 		"rank_points": rank_points,
 		"wins": wins,
 		"losses": losses,
+		"injuries": injuries.duplicate(true),
+		"haggle_marks": haggle_marks.duplicate(true),
+		"trained_xp": trained_xp,
 		"base_strength": base_strength,
 		"base_attack": base_attack,
 		"base_defence": base_defence,
@@ -413,6 +532,27 @@ func _to_string_array(source) -> Array:
 	if source is Array:
 		for entry: Variant in source:
 			result.append(str(entry))
+	return result
+
+## Normaliza a lista de ferimentos persistidos (só dicionários válidos).
+func _load_injuries(source) -> Array:
+	var result: Array = []
+	if source is Array:
+		for entry: Variant in source:
+			if entry is Dictionary:
+				var injury: Dictionary = entry
+				if str(injury.get("id", "")) != "":
+					result.append(injury.duplicate(true))
+	return result
+
+## Normaliza as marcas de pechincha (item_id -> {result, discount}).
+func _load_marks(source) -> Dictionary:
+	var result := {}
+	if source is Dictionary:
+		for key: Variant in source.keys():
+			var entry: Variant = source[key]
+			if entry is Dictionary:
+				result[str(key)] = entry.duplicate(true)
 	return result
 
 func _to_string_dict(source) -> Dictionary:

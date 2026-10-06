@@ -121,9 +121,20 @@ func _render_summary() -> void:
 			lines.append("[color=#79cf7b]PROMOVIDO de faixa![/color]")
 		elif bool(_result.rank_demoted):
 			lines.append("[color=#d95858]Você foi REBAIXADO de faixa.[/color]")
+	# APOSTA (item 5): o que a aposta rendeu (ou queimou) nesta luta.
+	if bool(_result.bet_active):
+		if bool(_result.bet_won):
+			lines.append("[color=#79cf7b]APOSTA: %d ouro em odd ×%.2f → recebeu %d ouro.[/color]" % [int(_result.bet_stake), float(_result.bet_odd), int(_result.bet_payout)])
+		else:
+			lines.append("[color=#d95858]APOSTA: %d ouro em odd ×%.2f → perdeu a aposta.[/color]" % [int(_result.bet_stake), float(_result.bet_odd)])
+	# FERIMENTO (item 2): sequela NOVA que sobrevive à luta (o médico ou a poção cura).
+	if bool(_result.injured):
+		var injury: Dictionary = _result.injury
+		lines.append("[color=#e08a8a]FERIMENTO — %s. Passe no MÉDICO (ou use uma poção de ferimento).[/color]" % str(injury.get("label", "ferido")))
+	var extra_lines := (1 if bool(_result.bet_active) else 0) + (1 if bool(_result.injured) else 0)
 	var summary := RichTextLabel.new()
 	summary.bbcode_enabled = true
-	summary.custom_minimum_size = Vector2(0, 170 if not _result.loot.is_empty() else 200)
+	summary.custom_minimum_size = Vector2(0, (170 if not _result.loot.is_empty() else 200) + extra_lines * 24)
 	summary.add_theme_font_size_override("normal_font_size", 17)
 	summary.add_theme_stylebox_override("normal", _panel_style(PANEL_DARK, 10, 20))
 	summary.text = "\n".join(lines)

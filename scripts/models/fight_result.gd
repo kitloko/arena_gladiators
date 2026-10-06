@@ -38,6 +38,15 @@ var rank_change_known: bool = false
 ## Faixa de arena usada nesta luta (ideia 9): id + título.
 var arena_band_id: String = ""
 var arena_band_title: String = ""
+## APOSTA no próprio combate (item 5): resultado da aposta desta luta.
+var bet_active: bool = false
+var bet_stake: int = 0
+var bet_odd: float = 0.0
+var bet_won: bool = false
+var bet_payout: int = 0
+## FERIMENTO persistente (item 2): ferimento NOVO deixado por esta luta.
+var injured: bool = false
+var injury: Dictionary = {}
 
 func _init(p_victory: bool = false, p_rounds: int = 1) -> void:
 	victory = p_victory

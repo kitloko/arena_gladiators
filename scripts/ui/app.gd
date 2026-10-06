@@ -49,6 +49,7 @@ func _on_creation_confirmed(player_name: String, allocation: Dictionary) -> void
 # --- Cidade (hub) ---------------------------------------------------------
 
 func show_city() -> void:
+	GameState.in_combat = false
 	if GameState.player != null and not GameState.is_tournament():
 		GameState.save_progress()
 	_clear_screens()
@@ -89,6 +90,9 @@ func show_character() -> void:
 ## (Arena Livre e torneio). O combate só começa quando o jogador clica em
 ## ENTRAR NA ARENA (sinal fight_started → show_arena).
 func show_prefight() -> void:
+	GameState.in_combat = false
+	# Cada luta tem a SUA aposta: zera a anterior antes de apostar de novo.
+	GameState.reset_bet()
 	GameState.current_enemy = GameState.build_current_foe()
 	_clear_screens()
 	var screen := PreFightScreenScene.instantiate()
@@ -108,6 +112,7 @@ func _on_fight_finished(result) -> void:
 	show_result()
 
 func show_result() -> void:
+	GameState.in_combat = false
 	_clear_screens()
 	var screen := ResultScreenScene.instantiate()
 	add_child(screen)

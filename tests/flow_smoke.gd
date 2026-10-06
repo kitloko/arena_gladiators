@@ -255,7 +255,52 @@ func _run_test() -> void:
 	_check(_count_named(app, "bagrow_") == GameState.player.bag_items().size(), "a bolsa desenha uma linha por item (%d)" % GameState.player.bag_items().size())
 	_press_button(app, "VOLTAR À CIDADE")
 	await get_tree().create_timer(0.3).timeout
-	# 11) Torneio: a apresentação (item F) também aparece antes do primeiro combate.
+	# 11) SERVIÇOS DA CIDADE (item 10): médico, ferreiro e treinador no cenário.
+	for service_label in ["MÉDICO", "FERREIRO", "TREINADOR"]:
+		_check(_find_button_contains(app, service_label) != null, "cidade: serviço novo — %s" % service_label)
+	_press_button_contains(app, "MÉDICO")
+	await get_tree().create_timer(0.2).timeout
+	_check(_find_label_contains(app, "MÉDICO") != null, "MÉDICO abre o diálogo de tratamento")
+	_check(_find_label_contains(app, "FERIMENTOS") != null, "MÉDICO lista os ferimentos")
+	_press_button(app, "FECHAR")
+	await get_tree().create_timer(0.2).timeout
+	GameState.player.gold = 3000
+	GameState.player.health = maxi(1, GameState.player.health - 10)
+	var doctor_before = GameState.player.health
+	_press_button_contains(app, "MÉDICO")
+	await get_tree().create_timer(0.2).timeout
+	_press_button_contains(app, "TRATAR")
+	await get_tree().create_timer(0.3).timeout
+	_check(GameState.player.health >= doctor_before, "MÉDICO pago recupera a vida (%d → %d)" % [doctor_before, GameState.player.health])
+	_press_button_contains(app, "FERREIRO")
+	await get_tree().create_timer(0.2).timeout
+	_check(_find_label_contains(app, "FERREIRO") != null, "FERREIRO abre o diálogo de melhoria")
+	_press_button(app, "FECHAR")
+	await get_tree().create_timer(0.2).timeout
+	var xp_before_train = GameState.player.experience
+	_press_button_contains(app, "TREINADOR")
+	await get_tree().create_timer(0.2).timeout
+	_check(_find_label_contains(app, "TREINADOR") != null and _find_button_contains(app, "TREINAR") != null, "TREINADOR abre com o botão de treinar")
+	_press_button_contains(app, "TREINAR")
+	await get_tree().create_timer(0.4).timeout
+	_check(GameState.player.experience > xp_before_train or GameState.player.trained_xp > 0, "treinar dá XP de verdade (XP %d → %d)" % [xp_before_train, GameState.player.experience])
+	_press_button(app, "FECHAR")
+	await get_tree().create_timer(0.2).timeout
+	# 12) POÇÕES (item 6): comprar na loja (aba POÇÕES) para usar na luta seguinte.
+	GameState.player.gold = 500
+	_press_button_contains(app, "Loja")
+	await get_tree().create_timer(0.4).timeout
+	_press_button(app, "POÇÕES")
+	await get_tree().create_timer(0.4).timeout
+	var potion_buy = _find_button_contains(app, "COMPRAR")
+	_check(potion_buy != null, "a loja tem a aba POÇÕES com consumíveis à venda")
+	if potion_buy != null and not potion_buy.disabled:
+		potion_buy.pressed.emit()
+	await get_tree().create_timer(0.4).timeout
+	_check(GameState.consumable_count() >= 1, "comprar poção enche a mochila (%d)" % GameState.consumable_count())
+	_press_button_contains(app, "VOLTAR À ARENA")
+	await get_tree().create_timer(0.4).timeout
+	# 13) Torneio: a apresentação (item F) também aparece antes do primeiro combate.
 	GameState.player.rank_points = 5000
 	_press_button_contains(app, "Grande Torneio")
 	await get_tree().create_timer(0.4).timeout
@@ -265,6 +310,20 @@ func _run_test() -> void:
 	_press_button(app, "ENTRAR NA ARENA")
 	await get_tree().create_timer(0.5).timeout
 	_check(_find_by_method(app, "start_new_fight") != null, "torneio: ENTRAR NA ARENA inicia o combate")
+	await get_tree().create_timer(0.4).timeout
+	# 14) POÇÃO em combate (item 6): usar gasta o turno e consome o item.
+	var arena_potion = _find_by_method(app, "start_new_fight")
+	var potion_btn = _find_button_contains(app, "POÇÃO:")
+	_check(potion_btn != null, "a arena oferece a poção como ação de combate")
+	_check(GameState.in_combat, "durante a luta, a bolsa permite usar poção")
+	var consumables_before = GameState.consumable_count()
+	var round_before_potion: int = int(arena_potion.round_number) if arena_potion != null else 0
+	if potion_btn != null:
+		potion_btn.pressed.emit()
+	await get_tree().create_timer(0.7).timeout
+	_check(GameState.consumable_count() == consumables_before - 1, "usar a poção CONSOME o item (%d → %d)" % [consumables_before, GameState.consumable_count()])
+	if arena_potion != null and arena_potion.fight_active:
+		_check(int(arena_potion.round_number) > round_before_potion, "usar a poção gasta o TURNO (rodada %d → %d)" % [round_before_potion, int(arena_potion.round_number)])
 	GameState.finish_tournament()
 	GameState.clear_save()
 	_finish()

@@ -14,6 +14,11 @@ const ContentRepositoryScript := preload("res://scripts/repositories/content_rep
 const SaveSystemScript := preload("res://scripts/systems/save_system.gd")
 const ItemGeneratorScript := preload("res://scripts/systems/item_generator.gd")
 const PresentationSystemScript := preload("res://scripts/systems/presentation_system.gd")
+const InjurySystemScript := preload("res://scripts/systems/injury_system.gd")
+const HaggleSystemScript := preload("res://scripts/systems/haggle_system.gd")
+const BettingSystemScript := preload("res://scripts/systems/betting_system.gd")
+const PotionSystemScript := preload("res://scripts/systems/potion_system.gd")
+const GameStateScript := preload("res://scripts/autoload/game_state.gd")
 
 var _failures: int = 0
 
@@ -62,6 +67,17 @@ func _initialize() -> void:
 	_test_presentation_power_index()
 	_test_presentation_taunt_draw()
 	_test_enemy_identity_content()
+	# --- ETAPA 5 ---
+	_test_injury_generated_and_reduces_attribute()
+	_test_injury_limits_and_no_zero()
+	_test_injury_cure_only_paid()
+	_test_haggle_discount_and_once_per_item()
+	_test_betting_odd_payout_and_cap()
+	_test_potion_effect_and_consumed()
+	_test_potion_only_in_combat()
+	_test_blacksmith_upgrade_and_cap()
+	_test_trainer_xp_and_cap()
+	_test_doctor_cures_and_charges()
 	if _failures == 0:
 		print("PASS: todos os testes de regras passaram.")
 		quit(0)
@@ -751,6 +767,345 @@ func _check(condition: bool, label: String) -> void:
 	else:
 		_failures += 1
 		printerr("  FALHOU - %s" % label)
+
+# ===========================================================================
+# ETAPA 5 — ferimentos, pechincha, apostas, poções e serviços da cidade
+# ===========================================================================
+
+## Instância limpa de GameState com um lutador, sem tocar no disco (modo torneio).
+func _new_game_state(player, foe = null):
+	var gs = GameStateScript.new()
+	gs.mode = "tournament"
+	gs.player = player
+	gs.current_enemy = foe
+	return gs
+
+## FERIMENTO (item 2): perder gera sequela que reduz de verdade o atributo e
+## sobrevive a heal_full; o descanso comum NÃO cura.
+func _test_injury_generated_and_reduces_attribute() -> void:
+	seed(424242)
+	var generated := 0
+	for i in 300:
+		var p = _fighter({"id": "inj", "base_strength": 20, "base_vitality": 10})
+		var info: Dictionary = InjurySystemScript.after_fight(p, false, false)
+		if bool(info.get("injured", false)):
+			generated += 1
+			if p.injuries.size() != 1:
+				_failures += 1
+				printerr("  FALHOU - perder gerou ferimento mas a lista tem %d" % p.injuries.size())
+				return
+	_check(generated > 150, "perder gera FERIMENTO na maioria das derrotas (%d de 300)" % generated)
+	# Um ferimento de template reduz o atributo de verdade e conta no combate.
+	var player = _fighter({"id": "hurt", "base_strength": 20, "base_attack": 10, "base_defence": 10, "base_agility": 10, "base_vitality": 10, "base_charisma": 10, "base_luck": 10})
+	var strength_before: int = player.strength
+	var add: Dictionary = InjurySystemScript.add_injury(player, InjurySystemScript.find_template("broken_arm"))
+	_check(bool(add.get("ok", false)) and player.strength == strength_before - 3, "'Braço quebrado' reduz STR de verdade (%d → %d)" % [strength_before, player.strength])
+	_check(player.injuries.size() == 1 and str((player.injuries[0] as Dictionary).get("label", "")) == "Braço quebrado", "o ferimento aparece na lista do lutador")
+	# Costela rachada mexe na VIT → mexe na vida máxima.
+	var vital = _fighter({"id": "hurt2", "base_vitality": 10})
+	var hp_before: int = vital.max_health
+	InjurySystemScript.add_injury(vital, InjurySystemScript.find_template("cracked_ribs"))
+	_check(vital.max_health == hp_before - 4 * GladiatorDataScript.HEALTH_PER_VIT, "ferimento de VIT reduz a vida máxima (conta no combate)")
+	# Sobrevive à cura comum (heal_full) — só o médico/poção tira.
+	var previous: int = player.strength
+	player.heal_full()
+	_check(player.strength == previous and player.injuries.size() == 1, "heal_full (descanso comum) NÃO cura o ferimento")
+	# Um ferimento gerado por derrota muda o dano resolvido (conta de verdade).
+	var healthy = _fighter({"id": "h", "base_strength": 30, "base_attack": 0, "base_agility": 0, "base_defence": 0, "base_vitality": 30})
+	var wounded = _fighter({"id": "w", "base_strength": 30, "base_attack": 0, "base_agility": 0, "base_defence": 0, "base_vitality": 30})
+	InjurySystemScript.add_injury(wounded, InjurySystemScript.find_template("broken_arm"))
+	_check(wounded.strength == healthy.strength - 3, "o ferimento entra na luta seguinte (STR efetiva menor)")
+
+## FERIMENTO (item 2): no máximo 2 ativos, sem repetir, e nenhum pode zerar.
+func _test_injury_limits_and_no_zero() -> void:
+	var player = _fighter({"id": "lim", "base_strength": 20, "base_attack": 20, "base_defence": 20, "base_agility": 20, "base_vitality": 20, "base_charisma": 20, "base_luck": 20})
+	var a: Dictionary = InjurySystemScript.add_injury(player, InjurySystemScript.find_template("broken_arm"))
+	var dup: Dictionary = InjurySystemScript.add_injury(player, InjurySystemScript.find_template("broken_arm"))
+	_check(bool(a.get("ok", false)) and not bool(dup.get("ok", false)), "o MESMO ferimento não empilha (2ª vez recusada)")
+	_check(str(dup.get("reason", "")) != "", "a recusa de duplicata explica o motivo")
+	InjurySystemScript.add_injury(player, InjurySystemScript.find_template("cracked_ribs"))
+	var third: Dictionary = InjurySystemScript.add_injury(player, InjurySystemScript.find_template("swollen_eye"))
+	_check(player.injuries.size() == 2 and not bool(third.get("ok", false)), "no máximo 2 ferimentos ativos (teto do sistema = %d)" % InjurySystemScript.max_active())
+	_check(InjurySystemScript.max_active() == 2, "o teto documentado é 2 ferimentos ativos")
+	# Nenhum ferimento zera um atributo: com STR 2, o corte de −3 vira −1.
+	seed(7)
+	var weak = _fighter({"id": "weak", "base_strength": 2, "base_vitality": 10})
+	var applied: Dictionary = InjurySystemScript.add_injury(weak, InjurySystemScript.find_template("broken_arm"))
+	_check(bool(applied.get("ok", false)) and weak.strength == 1, "ferimento não zera o atributo (STR 2 −3 → 1, cortado)")
+	_check(int((applied.get("injury", {}) as Dictionary).get("penalty", 0)) == 1, "a penalidade aplicada é a cortada (%d)" % int((applied.get("injury", {}) as Dictionary).get("penalty", 0)))
+	# Um atributo já no mínimo recusa o ferimento.
+	var floor_fighter = _fighter({"id": "floor", "base_strength": 1, "base_vitality": 10})
+	# força o mínimo via derivação: adiciona ferimento de outro atributo não ajuda; simula STR 1
+	var refused: Dictionary = InjurySystemScript.add_injury(floor_fighter, InjurySystemScript.find_template("broken_arm"))
+	_check(not bool(refused.get("ok", false)) or floor_fighter.strength >= 1, "atributo no mínimo nunca é zerado nem negativo")
+
+## FERIMENTO (item 2): só a cura PAGA (médico) tira a sequela.
+func _test_injury_cure_only_paid() -> void:
+	var player = _fighter({"id": "cure", "base_strength": 20, "base_vitality": 10, "level": 4})
+	var base_strength: int = player.strength
+	InjurySystemScript.add_injury(player, InjurySystemScript.find_template("broken_arm"))
+	_check(player.strength == base_strength - 3, "ferimento aplicado (STR −3)")
+	player.health = 10
+	player.heal_full()
+	_check(player.injuries.size() == 1, "recuperar a vida cheia não cura o ferimento")
+	var cost: int = EconomySystemScript.doctor_cost(player)
+	_check(cost >= EconomySystemScript.injury_cure_price(player.level), "o médico cobra pela cura do ferimento (%d ouro)" % cost)
+	var gs = _new_game_state(player)
+	gs.mode = "tournament"
+	# Sem ouro, o médico recusa.
+	player.gold = 0
+	var poor: Dictionary = gs.visit_doctor()
+	_check(not bool(poor.get("ok", false)) and player.injuries.size() == 1, "sem ouro o médico não cura")
+	player.gold = cost + 5
+	var paid: Dictionary = gs.visit_doctor()
+	_check(bool(paid.get("ok", false)) and int(paid.get("cured", 0)) == 1, "o médico pago cura o ferimento")
+	_check(player.injuries.is_empty() and player.strength == base_strength, "curar devolve o atributo (%d → %d)" % [base_strength - 3, player.strength])
+	_check(player.gold == 5, "o médico cobrou exatamente o custo (sobrou %d)" % player.gold)
+	gs.free()
+
+## PECHINCHA (item 4): desconto dentro do teto, uma vez por item, falha trava.
+func _test_haggle_discount_and_once_per_item() -> void:
+	seed(20260101)
+	var low_cha = _fighter({"id": "l", "base_charisma": 5, "base_luck": 5})
+	var high_cha = _fighter({"id": "h", "base_charisma": 40, "base_luck": 5})
+	_check(HaggleSystemScript.success_chance(high_cha) > HaggleSystemScript.success_chance(low_cha), "CHA/sorte aumentam a chance de pechincha (%.2f > %.2f)" % [HaggleSystemScript.success_chance(high_cha), HaggleSystemScript.success_chance(low_cha)])
+	_check(HaggleSystemScript.success_chance(high_cha) <= HaggleSystemScript.SUCCESS_MAX and HaggleSystemScript.success_chance(low_cha) >= HaggleSystemScript.SUCCESS_MIN, "a chance fica na faixa [5%%, 95%%]")
+	# Nenhuma tentativa pode passar do teto total.
+	var over_cap := false
+	var successes := 0
+	for i in 4000:
+		var p = _fighter({"id": "p", "base_charisma": 40, "base_luck": 5})
+		var info: Dictionary = HaggleSystemScript.attempt(p, "item_%d" % i)
+		if bool(info.get("success", false)):
+			successes += 1
+			if float(info.get("discount", 0.0)) > HaggleSystemScript.BONUS_MAX + 0.0001:
+				over_cap = true
+			if HaggleSystemScript.total_discount(p, "item_%d" % i) > HaggleSystemScript.MAX_DISCOUNT + 0.0001:
+				over_cap = true
+	_check(not over_cap, "o desconto da pechincha nunca passa do teto (bônus ≤ %.2f, total ≤ %.2f)" % [HaggleSystemScript.BONUS_MAX, HaggleSystemScript.MAX_DISCOUNT])
+	# Desconto médio por valor de CHA (medido).
+	var avg_low := _measure_haggle(low_cha, 4000)
+	var avg_high := _measure_haggle(high_cha, 4000)
+	print("    pechincha — desconto médio: CHA 5 = %.1f%% | CHA 40 = %.1f%%" % [avg_low * 100.0, avg_high * 100.0])
+	_check(avg_high > avg_low, "mais CARISMA = desconto médio maior (%.1f%% > %.1f%%)" % [avg_high * 100.0, avg_low * 100.0])
+	_check(avg_high <= HaggleSystemScript.MAX_DISCOUNT, "o desconto médio de CHA 40 fica dentro do teto (%.1f%%)" % (avg_high * 100.0))
+	# Uma vez por item: a 2ª tentativa é recusada.
+	var p2 = _fighter({"id": "p2", "base_charisma": 20, "base_luck": 20})
+	var first: Dictionary = HaggleSystemScript.attempt(p2, "espada_x")
+	var second: Dictionary = HaggleSystemScript.attempt(p2, "espada_x")
+	_check(bool(first.get("ok", false)) and not bool(second.get("ok", false)), "cada item só pode ser pechinchado UMA vez")
+	_check(str(second.get("reason", "")).contains("já"), "a 2ª tentativa explica que já foi pechinchado")
+	# Falha TRAVA: depois de perder, o item nunca mais aceita pechincha.
+	var locked := false
+	for i in 200:
+		var p3 = _fighter({"id": "p3", "base_charisma": 1, "base_luck": 1})
+		var tried: Dictionary = HaggleSystemScript.attempt(p3, "item_travado")
+		if not bool(tried.get("success", false)):
+			locked = bool(tried.get("locked", false)) and HaggleSystemScript.attempted(p3, "item_travado")
+			var again: Dictionary = HaggleSystemScript.attempt(p3, "item_travado")
+			if bool(again.get("ok", false)):
+				locked = false
+			break
+	_check(locked, "falhar TRAVA o item (não dá para tentar de novo)")
+	# O preço efetivo de um item pechinchado com sucesso é menor que o do mercado.
+	var buyer = _fighter({"id": "b", "base_charisma": 40, "base_luck": 5})
+	var item := {"id": "for_sale", "price": 100, "slot": "weapon"}
+	var market_price: int = EconomySystemScript.price_for_player(item, buyer)
+	buyer.haggle_marks["for_sale"] = {"result": "won", "discount": HaggleSystemScript.bonus_max(buyer)}
+	var haggled_price: int = EconomySystemScript.price_for_player(item, buyer)
+	_check(haggled_price < market_price, "pechinchar com sucesso baixa o preço (%d → %d)" % [market_price, haggled_price])
+
+## Mede o desconto médio REAL aplicado (só quando a pechincha dá certo).
+func _measure_haggle(player, trials: int) -> float:
+	var total := 0.0
+	var used := 0
+	var index := 0
+	for i in trials:
+		index += 1
+		var info: Dictionary = HaggleSystemScript.attempt(player, "m_%d" % index)
+		if bool(info.get("success", false)):
+			total += float(info.get("discount", 0.0))
+		used += 1
+	return total / float(maxi(1, used))
+
+## APOSTA (item 5): odd pelo Índice de Poder, pagamento e perda, teto respeitado.
+func _test_betting_odd_payout_and_cap() -> void:
+	# Mais fraco → odd maior; mais forte → odd menor.
+	var weak_odd: float = BettingSystemScript.odd_for(50, 120)
+	var strong_odd: float = BettingSystemScript.odd_for(120, 50)
+	_check(weak_odd > strong_odd, "o mais FRACO recebe odd maior (%.2f > %.2f)" % [weak_odd, strong_odd])
+	_check(weak_odd <= BettingSystemScript.MAX_ODD and strong_odd >= BettingSystemScript.MIN_ODD, "a odd respeita o teto %.2f e o piso %.2f" % [BettingSystemScript.MAX_ODD, BettingSystemScript.MIN_ODD])
+	var all_negative := true
+	for diff in range(-200, 201, 20):
+		if BettingSystemScript.expected_value(100 + diff, 100 - diff) >= 0.0:
+			all_negative = false
+	_check(all_negative, "o valor esperado da aposta é SEMPRE negativo (não é impressora de dinheiro)")
+	# TRAVA ANTI-IMPRESSORA (ouro por luta): o ganho LÍQUIDO máximo teórico da
+	# aposta (aposta-teto × odd máxima) nunca passa da recompensa-base da luta do
+	# MESMO nível, nem com o multiplicador mínimo do público (~×1,2). A aposta não
+	# rende mais que a própria luta — não dá para viver de apostar.
+	var out_of_band := ""
+	var band_report: Array[String] = []
+	for level in [1, 3, 5, 8, 10, 12, 15]:
+		var ceiling := int(round(float(EconomySystemScript.fight_rewards(level).gold) * 1.2))
+		var net := BettingSystemScript.max_theoretical_net(level)
+		band_report.append("nv%d %d≤%d" % [level, net, ceiling])
+		if net > ceiling:
+			out_of_band += " nível %d (%d > %d)" % [level, net, ceiling]
+	print("    aposta — ganho líquido máxima vs luta: %s" % " | ".join(band_report))
+	_check(out_of_band == "", "o ganho líquido máximo da aposta cabe na recompensa da luta de cada nível%s" % out_of_band)
+	# A odd também é presa: o mais fraco nunca recebe mais que MAX_ODD.
+	_check(BettingSystemScript.odd_for(1, 999) <= BettingSystemScript.MAX_ODD, "a odd do azarão fica presa em ×%.2f (anti-impressora)" % BettingSystemScript.MAX_ODD)
+	# Pagamento e perda com a régua do GameState.
+	var foe = _fighter({"id": "foe", "base_strength": 40, "base_attack": 20, "base_defence": 20, "base_agility": 10, "base_vitality": 20, "base_charisma": 10, "base_luck": 10, "level": 3})
+	var player = _fighter({"id": "gambler", "base_strength": 12, "base_attack": 8, "base_defence": 6, "base_agility": 6, "base_vitality": 8, "base_charisma": 6, "base_luck": 6, "level": 3, "gold": 100})
+	var gs = _new_game_state(player, foe)
+	var cap_before: int = gs.max_bet()
+	_check(cap_before <= BettingSystemScript.BET_BASE + 3 * BettingSystemScript.BET_PER_LEVEL and cap_before <= 100, "o teto da aposta respeita nível+ouro (%d)" % cap_before)
+	var placed: Dictionary = gs.place_bet(99999)
+	_check(bool(placed.get("ok", false)) and int(placed.get("stake", 0)) == cap_before, "aposta grande é cortada no teto (%d)" % int(placed.get("stake", 0)))
+	_check(player.gold == 100 - cap_before, "a aposta desconta o ouro na hora (%d)" % player.gold)
+	var odd: float = float(gs.current_bet_odd)
+	var settled_win: Dictionary = gs.settle_bet(true)
+	var expected_payout: int = BettingSystemScript.payout(cap_before, odd)
+	_check(int(settled_win.get("payout", 0)) == expected_payout, "vitória paga aposta × odd (%d ouro, odd %.2f)" % [expected_payout, odd])
+	_check(player.gold == 100 - cap_before + expected_payout, "o pagamento entra no bolso (%d)" % player.gold)
+	_check(gs.current_bet == 0, "a aposta é encerrada depois do pagamento")
+	# Derrota: queima a aposta.
+	player.gold = 100
+	gs.place_bet(cap_before)
+	var gold_after_bet: int = player.gold
+	var settled_loss: Dictionary = gs.settle_bet(false)
+	_check(int(settled_loss.get("payout", 0)) == 0 and player.gold == gold_after_bet, "derrota perde a aposta (não recebe nada, ouro %d)" % player.gold)
+	gs.free()
+
+## POÇÃO (item 6): efeito aplicado, item consumido, limite de mochila.
+func _test_potion_effect_and_consumed() -> void:
+	var heal_item := {"id": "pocao_cura", "display_name": "Poção de cura", "slot": "consumable", "effect": "heal", "amount": 40, "price": 30}
+	var potion_player = _fighter({"id": "drinker", "base_vitality": 20, "base_strength": 10})
+	potion_player.health = 10
+	var heal: Dictionary = PotionSystemScript.use(potion_player, heal_item)
+	_check(bool(heal.get("ok", false)) and potion_player.health == 50, "poção de cura recupera vida (%d)" % potion_player.health)
+	# Buff temporário: +6 STR por 3 turnos, expira.
+	var buff_item := {"id": "pocao_forca", "slot": "consumable", "effect": "buff_str", "amount": 6, "turns": 3}
+	var base_str: int = potion_player.strength
+	PotionSystemScript.use(potion_player, buff_item)
+	_check(potion_player.strength == base_str + 6, "poção de força dá +6 STR por 3 turnos (%d)" % potion_player.strength)
+	potion_player.tick_buffs()
+	potion_player.tick_buffs()
+	_check(potion_player.strength == base_str + 6 and potion_player.has_active_buffs(), "o buff dura 3 turnos (ainda ativo após 2)")
+	potion_player.tick_buffs()
+	_check(potion_player.strength == base_str and not potion_player.has_active_buffs(), "o buff expira no 3º turno (STR volta a %d)" % potion_player.strength)
+	# Poção de ferimento cura UM ferimento.
+	InjurySystemScript.add_injury(potion_player, InjurySystemScript.find_template("swollen_eye"))
+	var cure_item := {"id": "pocao_remendo", "slot": "consumable", "effect": "cure_injury", "price": 90}
+	var cured: Dictionary = PotionSystemScript.use(potion_player, cure_item)
+	_check(bool(cured.get("ok", false)) and potion_player.injuries.is_empty(), "poção de ferimento cura 1 ferimento")
+	# Consumida de verdade via GameState: sai da bolsa.
+	var owner = _fighter({"id": "owner", "base_vitality": 20, "level": 3, "gold": 500})
+	owner.remember_item(heal_item.duplicate(true))
+	owner.health = 5
+	var gs = _new_game_state(owner, null)
+	gs.in_combat = true
+	_check(gs.consumable_count() == 1, "a poção entra na mochila (1)")
+	var use: Dictionary = gs.use_potion("pocao_cura")
+	_check(bool(use.get("ok", false)) and owner.health == 45, "usar a poção aplica o efeito na luta (vida %d)" % owner.health)
+	_check(gs.consumable_count() == 0 and not owner.owns_item("pocao_cura"), "usar CONSOOME o item (some da bolsa)")
+	# Limite da mochila.
+	var stuffed = _fighter({"id": "stuffed", "gold": 10000, "level": 2})
+	for i in PotionSystemScript.MAX_POTIONS:
+		stuffed.remember_item({"id": "p%d" % i, "slot": "consumable", "effect": "heal", "amount": 10, "price": 10})
+	_check(PotionSystemScript.count(stuffed) == PotionSystemScript.max_potions(), "a mochila enche no limite (%d)" % PotionSystemScript.max_potions())
+	_check(not PotionSystemScript.can_carry(stuffed, heal_item), "com a mochila cheia, outra poção é recusada")
+	gs.free()
+
+## POÇÃO (item 6): não pode ser usada fora da luta.
+func _test_potion_only_in_combat() -> void:
+	var player = _fighter({"id": "city", "gold": 100, "level": 2})
+	player.remember_item({"id": "pocao_cura", "slot": "consumable", "effect": "heal", "amount": 40, "price": 30})
+	var gs = _new_game_state(player, null)
+	gs.in_combat = false
+	var outside: Dictionary = gs.use_potion("pocao_cura")
+	_check(not bool(outside.get("ok", false)) and str(outside.get("reason", "")).contains("luta"), "fora da luta a poção não é usada ('%s')" % str(outside.get("reason", "")))
+	_check(player.owns_item("pocao_cura"), "a poção continua na bolsa quando recusada fora da luta")
+	gs.in_combat = true
+	_check(bool(gs.use_potion("pocao_cura").get("ok", false)), "dentro da luta a poção é usada")
+	gs.free()
+
+## FERREIRO (item 10): armadura sobe pelo preço certo e respeita o teto.
+func _test_blacksmith_upgrade_and_cap() -> void:
+	var player = _fighter({"id": "smith", "level": 4, "gold": 5000})
+	var armor := {"id": "test_plate", "display_name": "Peitoral de teste", "slot": "armor", "price": 60, "armour": 20, "level": 4}
+	player.remember_item(armor)
+	player.equip_item(armor)
+	var armour_before: int = player.max_armour
+	var gs = _new_game_state(player, null)
+	var state: Dictionary = gs.smith_info("test_plate")
+	var cost: int = int(state.get("cost", 0))
+	_check(bool(state.get("ok", false)) and cost == EconomySystemScript.blacksmith_cost(armor, 0), "o ferreiro informa o preço da melhoria (%d ouro)" % cost)
+	var up: Dictionary = gs.smith_upgrade("test_plate")
+	_check(bool(up.get("ok", false)) and player.max_armour == armour_before + EconomySystemScript.BLACKSMITH_ARMOUR_PER_UPGRADE, "melhorar sobe a armadura em +1 (%d → %d)" % [armour_before, player.max_armour])
+	_check(player.gold == 5000 - cost, "cobrou exatamente o preço (%d)" % cost)
+	var second: Dictionary = gs.smith_info("test_plate")
+	_check(int(second.get("cost", 0)) > cost, "o preço sobe a cada melhoria (%d → %d)" % [cost, int(second.get("cost", 0))])
+	# Teto: para de melhorar no máximo.
+	for i in 20:
+		gs.smith_upgrade("test_plate")
+	var capped: Dictionary = gs.smith_info("test_plate")
+	_check(int(capped.get("upgrades", 0)) == EconomySystemScript.blacksmith_max(), "a melhoria respeita o teto (%d)" % EconomySystemScript.blacksmith_max())
+	_check(not bool(capped.get("ok", false)) and str(capped.get("reason", "")) != "", "no teto, o ferreiro recusa com motivo")
+	_check(player.max_armour == armour_before + EconomySystemScript.blacksmith_max() * EconomySystemScript.BLACKSMITH_ARMOUR_PER_UPGRADE, "a armadura final bate com o teto (%d)" % player.max_armour)
+	# Arma sem armadura e item de outro dono são recusados.
+	var weapon := {"id": "w1", "slot": "weapon", "price": 30, "strength_bonus": 2}
+	player.remember_item(weapon)
+	_check(not bool(gs.smith_upgrade("w1").get("ok", false)), "o ferreiro recusa item sem armadura")
+	_check(not bool(gs.smith_upgrade("nao_existe").get("ok", false)), "o ferreiro recusa item que não é do jogador")
+	gs.free()
+
+## TREINADOR (item 10): XP pelo preço certo, com teto por nível.
+func _test_trainer_xp_and_cap() -> void:
+	var player = _fighter({"id": "student", "level": 1, "gold": 1000})
+	var gs = _new_game_state(player, null)
+	var cap: int = gs.trainer_cap()
+	_check(cap == int(floor(float(EconomySystemScript.required_experience(1)) * EconomySystemScript.TRAINER_MAX_FRACTION)), "o teto do treinador é %d%% do XP do nível (%d)" % [int(EconomySystemScript.TRAINER_MAX_FRACTION * 100.0), cap])
+	var cost: int = gs.trainer_cost()
+	var gain: int = gs.trainer_gain()
+	_check(gain > 0 and gain <= cap, "uma sessão dá %d XP (dentro do teto %d)" % [gain, cap])
+	var xp_before: int = player.experience
+	var train: Dictionary = gs.train()
+	_check(bool(train.get("ok", false)) and int(train.get("xp", 0)) == gain, "treinar dá o XP prometido (%d)" % int(train.get("xp", 0)))
+	_check(player.experience == xp_before + gain and player.gold == 1000 - cost, "XP entra e o ouro sai pelo preço certo (%d)" % cost)
+	# Gasta o resto do teto e confirma que não passa.
+	for i in 20:
+		gs.train()
+	_check(player.trained_xp <= cap, "o XP comprado nunca passa do teto do nível (%d ≤ %d)" % [player.trained_xp, cap])
+	_check(gs.trainer_gain() == 0, "com o teto batido, outra sessão não rende XP")
+	var capped: Dictionary = gs.train()
+	_check(not bool(capped.get("ok", false)) and str(capped.get("reason", "")).contains("teto"), "no teto o treinador recusa com motivo ('%s')" % str(capped.get("reason", "")))
+	gs.free()
+
+## MÉDICO (item 10): cobra e cura vida, armadura e ferimentos.
+func _test_doctor_cures_and_charges() -> void:
+	var player = _fighter({"id": "patient", "level": 5, "gold": 5000, "base_vitality": 12, "base_strength": 15})
+	player.remember_item({"id": "pat_armor", "slot": "armor", "price": 40, "armour": 15})
+	player.equip_item(player.catalog_item("pat_armor"))
+	player.health = 20
+	player.armour = 3
+	InjurySystemScript.add_injury(player, InjurySystemScript.find_template("broken_arm"))
+	var strength_hurt: int = player.strength
+	var cost: int = EconomySystemScript.doctor_cost(player)
+	var gs = _new_game_state(player, null)
+	_check(cost == gs.doctor_cost() and cost > 0, "o médico calcula o preço (vida+armadura+ferimentos = %d)" % cost)
+	var paid: Dictionary = gs.visit_doctor()
+	_check(bool(paid.get("ok", false)), "o médico atende pagando")
+	_check(player.health == player.max_health and player.armour == player.max_armour, "o médico enche a vida e a armadura")
+	_check(int(paid.get("cured", 0)) == 1 and player.injuries.is_empty(), "o médico cura todos os ferimentos")
+	_check(player.strength > strength_hurt, "o atributo ferido volta (%d → %d)" % [strength_hurt, player.strength])
+	_check(player.gold == 5000 - cost, "o médico cobrou exatamente o custo (sobrou %d)" % player.gold)
+	# Sem ferimentos e sem dano, não há o que cobrar.
+	var fresh: Dictionary = gs.visit_doctor()
+	_check(bool(fresh.get("ok", false)) and int(fresh.get("cost", 0)) == 0, "sem nada a tratar, o médico não cobra")
+	gs.free()
 
 # --- RANK e KD (item I) -----------------------------------------------------
 

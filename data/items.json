@@ -28,5 +28,11 @@
   {"id": "rope_belt", "display_name": "Cinto de corda", "slot": "belt", "price": 10, "armour": 4, "vitality_bonus": 1},
   {"id": "leather_belt", "display_name": "Cinto de couro", "slot": "belt", "price": 34, "armour": 6, "vitality_bonus": 2, "defence_bonus": 1},
   {"id": "champion_belt", "display_name": "Cinto de campeão", "slot": "belt", "price": 92, "armour": 10, "vitality_bonus": 3, "defence_bonus": 2},
-  {"id": "gladius_magnus", "display_name": "Gládio do Grande Gladiador", "slot": "weapon", "kind": "melee", "reach": 1, "hands": 1, "unique": true, "source": "tournament", "price": 250, "strength_bonus": 12, "luck_bonus": 3}
+  {"id": "gladius_magnus", "display_name": "Gládio do Grande Gladiador", "slot": "weapon", "kind": "melee", "reach": 1, "hands": 1, "unique": true, "source": "tournament", "price": 250, "strength_bonus": 12, "luck_bonus": 3},
+
+  {"id": "pocao_cura", "display_name": "Poção de cura", "slot": "consumable", "category": "consumivel", "effect": "heal", "amount": 40, "price": 30},
+  {"id": "pocao_armadura", "display_name": "Poção de armadura", "slot": "consumable", "category": "consumivel", "effect": "armour", "amount": 30, "price": 30},
+  {"id": "pocao_forca", "display_name": "Poção de força", "slot": "consumable", "category": "consumivel", "effect": "buff_str", "amount": 6, "turns": 3, "price": 45},
+  {"id": "pocao_agilidade", "display_name": "Poção de agilidade", "slot": "consumable", "category": "consumivel", "effect": "buff_agi", "amount": 6, "turns": 3, "price": 45},
+  {"id": "pocao_remendo", "display_name": "Poção de remendo", "slot": "consumable", "category": "consumivel", "effect": "cure_injury", "price": 90}
 ]

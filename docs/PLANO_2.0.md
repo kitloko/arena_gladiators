@@ -124,7 +124,7 @@ evidência arquivada e **commit direto na `main`** (exceção combinada para est
 | **2** ✅ | H (felicidade do público + EXIBIR + multiplicador) | eventos mexendo a barra (teste por evento); ×1,0 a ×2,0; ≤3 ações não multiplica; **teste anti-exploit** (spam de EXIBIR / fuga não rendem mais ouro por hora); linha do público no resultado |
 | **3** ✅ | I (rank/KD + títulos + acesso por rank) + B (cidade cenário) + 9 (arenas por faixa) | rank sobe/desce conforme a força do adversário; **farm não chega ao topo**; rebaixa ao cair do piso; destino trancado com motivo; arena mais lotada eleva a felicidade inicial; cidade navegável por cenário |
 | **4** ✅ | F (apresentação + comparação antes da luta) + G (apelidos/identidade) | tela aparece antes da luta com as estatísticas comparadas e o Índice de Poder; ENTRAR NA ARENA inicia o combate; provocação sorteada |
-| **5** | 2 (ferimentos) + 4 (pechincha) + 5 (apostas) + 6 (poções em combate) + 10 (médico/ferreiro/treinador) | cada mecânica com teste próprio e efeito medido; economia final remedida (ouro por hora dentro do esperado) |
+| **5** ✅ | 2 (ferimentos) + 4 (pechincha) + 5 (apostas) + 6 (poções em combate) + 10 (médico/ferreiro/treinador) | cada mecânica com teste próprio e efeito medido; economia final remedida (ouro por hora dentro do esperado) |
 
 **Definição de pronto:** todas as etapas acima verdes, com evidência (saída dos testes + capturas do jogo
 rodando) arquivada em `/root/workspace/docs/arena-gladiadores/`, e o README/documentos atualizados.
@@ -299,3 +299,52 @@ por nível, sorteio das falas, validação completa de `enemies.json`); `run_bal
 `flow_smoke` PASS com **98 checagens** (a apresentação aparece antes da luta, mostra os dois nomes, o VS e o
 Índice de Poder, e o combate não começa antes do clique). QA com o jogo aberto: 30 telas em
 `/root/workspace/docs/arena-gladiadores/qa23/`.
+
+---
+
+## Resultado da etapa 5 — medido (06/10/2026, commit final da 2.0)
+
+**Ferimentos persistentes** (`scripts/systems/injury_system.gd`): 7 modelos, no máximo **2 ativos** ao mesmo
+tempo, sem duplicar o mesmo ferimento e com piso de **atributo ≥ 1** (nenhum ferimento zera um atributo).
+Chance ao **perder**: **75%** (sobe para **90%** se você levou crítico); ao **vencer tomando crítico**: 10%.
+Exemplos: Braço quebrado **−3 STR**, Costela rachada **−4 VIT**. **Só o médico cura** (e a poção de cura de
+ferimento) — descansar recupera vida, mas **não** tira a sequela.
+
+**Pechincha** (`haggle_system.gd`): chance `clamp(0,40 + CHA×0,012 + SOR×0,006, 0,05, 0,95)` — CHA 5 → **49%**,
+CHA 20 → 67%, CHA 40 → **91%**; desconto `clamp(CHA×0,010 + SOR×0,005, 0, 0,35)`, com **teto total de 35%**.
+Desconto médio medido: **CHA 5 = 3,7%** · **CHA 40 = 31,9%**. **Uma tentativa por item** e **falhar TRAVA**
+aquele item.
+
+**Apostas** (`betting_system.gd`): probabilidade `clamp(0,5 + 0,004×(seu_poder − poder_dele), 0,05, 0,90)` e
+odd `clamp(0,9/prob, 1,05, 2,00)`; teto de aposta `min(ouro, 20 + 8×nível)`. **O valor esperado é sempre
+negativo** (−0,10 a −0,72 por ouro apostado) e o ganho líquido máximo por nível (28/44/60/84/100/116/140) fica
+**≤ 1,2× a recompensa da luta do mesmo nível** — apostar não é impressora de dinheiro (provado por teste).
+
+**Poções** (`potion_system.gd`): mochila de no máximo **5**; **cura 40 de vida** (30 ouro), **30 de armadura**
+(30), **+6 STR/AGI por 3 turnos** (45) e **cura 1 ferimento** (90). Usar **gasta o turno** e **consome o item**
+e é **recusada fora da luta**.
+
+**Serviços da cidade** (três locais novos no cenário):
+
+| Serviço | Preço | Efeito |
+| --- | --- | --- |
+| **Médico** | `(vida + armadura faltantes)×preço do descanso + nFerimentos×(20 + 5×nível)`; curar 1 ferimento: nv1 **25** · nv5 45 · nv10 70 · nv15 95 | Cura vida, armadura e **todos** os ferimentos |
+| **Ferreiro** | `25 + 6×nível do item + 18×melhorias`; peça nv1: **31**/49/67/85/103 | **+1 de armadura** por melhoria, **máx. 5** por peça |
+| **Treinador** | `25 + 10×nível` ouro por sessão de `+8 + 4×nível` XP, **teto de 35% do XP do nível** (nv1: teto 21 XP, 12 por 35 ouro) | Compra XP **sem furar** a curva de progressão |
+
+**Economia:** a faixa de ouro por luta ficou **idêntica à linha de base** (30,6 → 303,6), ou seja, nenhuma
+mecânica nova mexeu na curva. Para isso o desenvolvimento **ajustou as mecânicas** (odd máxima 2,50 → 2,00 e
+desconto de mercado 0,35 → 0,15, deixando a pechincha como o mecanismo real de desconto) — **nunca o critério
+do `run_balance_test.gd`**, que não foi tocado.
+
+**Evidência em jogo (QA):** loja com aba **POÇÕES** e o botão **PECHINCHAR (51%)** respondendo
+**"PECHINCHA: SUCESSO"** — e a compra confirmando o desconto (*"Pechincha certa: 9% de desconto!"*, ouro **212 → 154**);
+poção comprada e usada **na luta** — vida **61 → 66** e mochila **1 → 0** (e o teste de fluxo prova que ela
+**gasta o turno**); aposta fechada ao entrar na arena e paga no resultado —
+**"APOSTA: 10 ouro em odd ×1,49 → recebeu 15 ouro"**; **ferimento de verdade** vindo da derrota (*"Braço quebrado
+(−3 STR)"*) e o **médico curando os 2 ferimentos por 70 de ouro** (ferimentos **2 → 0**, ouro **126 → 56**);
+**ferreiro** melhorando uma peça de verdade (**armadura máxima 7 → 8** por 31 ouro, com a próxima melhoria já a 49).
+O **treinador** abriu com **"TREINAR (+20 XP) — 55 ouro"** e o botão **desabilitado pelo teto de 35% do XP do
+nível** (o jogador já tinha ganho o teto lutando) — a sessão paga é coberta deterministicamente no
+`run_systems_test`. O ferreiro também mostra peças **da bolsa**, e melhorar uma peça não equipada **não** muda a
+armadura equipada (verificado: a peça melhorada era a Túnica, na bolsa, com a Couraça equipada em 8/8).

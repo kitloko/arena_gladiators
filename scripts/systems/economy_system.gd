@@ -70,6 +70,62 @@ static func full_rest_cost(player) -> int:
 static func shop_reroll_cost(player_level: int) -> int:
 	return 15 + maxi(1, player_level) * 5
 
+# --- Serviços da cidade (item 10): médico, ferreiro e treinador -------------
+
+## Preço de cura de UM ferimento no médico (sobe devagar com o nível).
+const INJURY_CURE_BASE := 20
+const INJURY_CURE_PER_LEVEL := 5
+
+static func injury_cure_price(player_level: int) -> int:
+	return INJURY_CURE_BASE + maxi(1, player_level) * INJURY_CURE_PER_LEVEL
+
+## Custo do MÉDICO: recupera toda a vida + armadura que faltam E cura TODOS os
+## ferimentos (é o único jeito pago de tirar sequela; a poção de ferimento cura
+## um por vez, dentro da luta).
+static func doctor_cost(player) -> int:
+	if player == null:
+		return 0
+	var pool_cost := full_rest_cost(player)
+	var count := 0
+	if "injuries" in player:
+		count = (player.injuries as Array).size()
+	return pool_cost + count * injury_cure_price(int(player.level))
+
+## FERREIRO: teto de melhorias por item (a proteção não pode virar infinita).
+const BLACKSMITH_MAX_UPGRADES := 5
+const BLACKSMITH_ARMOUR_PER_UPGRADE := 1
+
+static func blacksmith_max() -> int:
+	return BLACKSMITH_MAX_UPGRADES
+
+## Custo de UMA melhoria de armadura de um item: sobe a cada melhoria já feita.
+static func blacksmith_cost(item: Dictionary, current_upgrades: int) -> int:
+	if item.is_empty():
+		return 0
+	var lvl := maxi(1, int(item.get("level", 1)))
+	return 25 + lvl * 6 + maxi(0, current_upgrades) * 18
+
+## TREINADOR: fração do XP do nível que dá para COMPRAR (o resto é na luta). O
+## teto por nível impede que o ouro fure a curva de progressão.
+const TRAINER_MAX_FRACTION := 0.35
+
+static func trainer_cap(player) -> int:
+	if player == null:
+		return 0
+	return int(floor(float(required_experience(int(player.level))) * TRAINER_MAX_FRACTION))
+
+## XP que UMA sessão de treino dá (quem aplica o teto é o GameState).
+static func trainer_gain(player) -> int:
+	if player == null:
+		return 0
+	return 8 + int(player.level) * 4
+
+## Custo em ouro de UMA sessão de treino.
+static func trainer_cost(player) -> int:
+	if player == null:
+		return 0
+	return 25 + int(player.level) * 10
+
 # --- Sequência de vitórias (Arena Livre) -----------------------------------
 
 ## Multiplicador de recompensa pela sequência de vitórias: +12% por vitória
@@ -129,19 +185,30 @@ static func neutral_total(stat_id: String, allocation: Dictionary) -> int:
 
 # --- Desconto/pechincha na loja -------------------------------------------
 
-## Desconto na loja: CARISMA é o principal; SORTE ajuda na pechincha.
-## Limitado a 35% para não zerar o preço.
+## Desconto de MERCADO na loja: CARISMA é o principal; SORTE ajuda. É o preço bom
+## de praxe do comerciante, pequeno de propósito (teto 15%): quem quer desconto de
+## verdade PECHINCHA (HaggleSystem), que soma a este e sobe até 35% no total.
 static func shop_discount(player) -> float:
 	if player == null:
 		return 0.0
 	var cha := float(player.charisma)
 	var luk := float(player.luck)
-	return clampf(cha * 0.010 + luk * 0.005, 0.0, 0.35)
+	return clampf(cha * 0.004 + luk * 0.002, 0.0, 0.15)
 
-## Preço efetivo de compra para um jogador (com o desconto de CARISMA/SORTE).
+## Preço efetivo de compra para um jogador: desconto de MERCADO (CARISMA/SORTE)
+## MAIS o desconto conquistado na PECHINCHA daquele item (se ganhou), com o teto
+## total de 35%. Item nunca haggled = só o desconto de mercado.
 static func price_for_player(item: Dictionary, player) -> int:
 	var base := int(item.get("price", 0))
 	if base <= 0:
 		return 0
-	var discounted := float(base) * (1.0 - shop_discount(player))
+	var discount := 0.0
+	if player != null:
+		discount = shop_discount(player)
+		if player.has_method("haggle_mark_for"):
+			var mark: Dictionary = player.haggle_mark_for(str(item.get("id", "")))
+			if str(mark.get("result", "")) == "won":
+				discount += float(mark.get("discount", 0.0))
+	discount = clampf(discount, 0.0, 0.35)
+	var discounted := float(base) * (1.0 - discount)
 	return maxi(1, int(round(discounted)))

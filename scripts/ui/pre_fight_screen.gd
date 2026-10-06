@@ -37,6 +37,16 @@ var player_power: int = 0
 var enemy_power: int = 0
 var player_taunt: String = ""
 var enemy_taunt: String = ""
+## APOSTA (item 5): valor que o jogador pretende apostar no próprio combate. A
+## aposta só é FECHADA ao entrar na arena (aí o ouro sai e a odd congela).
+var bet_amount: int = 0
+var _bet_status: Label
+var _bet_amount_label: Label
+var _bet_odd_label: Label
+var _bet_payout_label: Label
+var _bet_plus: Button
+var _bet_minus: Button
+var _bet_step: int = 1
 
 func _ready() -> void:
 	player = GameState.player
@@ -45,11 +55,92 @@ func _ready() -> void:
 	enemy_power = PresentationSystemScript.power_index(foe)
 	player_taunt = PresentationSystemScript.player_taunt()
 	enemy_taunt = PresentationSystemScript.enemy_taunt(foe)
+	bet_amount = 0
+	_bet_step = maxi(1, GameState.max_bet() / 10)
 	build_interface()
 
-## Chamado pelo botão ENTRAR NA ARENA: o roteador (app.gd) abre a luta.
+## Chamado pelo botão ENTRAR NA ARENA: fecha a aposta (se houver) e o roteador
+## (app.gd) abre a luta. A odd fica travada no momento da entrada.
 func enter_arena() -> void:
+	if bet_amount > 0:
+		GameState.place_bet(bet_amount)
 	fight_started.emit()
+
+## Ajusta a aposta planejada (± passo), presa entre 0 e o teto.
+func adjust_bet(direction: int) -> void:
+	bet_amount = clampi(bet_amount + direction * _bet_step, 0, GameState.max_bet())
+	refresh_bet()
+
+func bet_max() -> void:
+	bet_amount = GameState.max_bet()
+	refresh_bet()
+
+func bet_clear() -> void:
+	bet_amount = 0
+	refresh_bet()
+
+## Atualiza os rótulos da aposta (valor, odd, retorno e o ouro do bolso).
+func refresh_bet() -> void:
+	if _bet_amount_label == null:
+		return
+	var odd: float = GameState.bet_odd()
+	var payout: int = int(round(float(bet_amount) * odd))
+	_bet_amount_label.text = "%d ouro" % bet_amount
+	_bet_odd_label.text = "Odd ×%.2f" % odd
+	_bet_payout_label.text = "Retorno se vencer: %d ouro" % payout
+	var cap: int = GameState.max_bet()
+	if cap <= 0:
+		_bet_status.text = "Sem ouro para apostar (teto 0)."
+		_bet_status.add_theme_color_override("font_color", RED)
+	elif bet_amount >= cap:
+		_bet_status.text = "Aposta no TETO (%d). Ouro no bolso: %d." % [cap, int(player.gold)]
+		_bet_status.add_theme_color_override("font_color", GOLD)
+	else:
+		_bet_status.text = "Aposta máxima: %d (nível + ouro). Ouro no bolso: %d." % [cap, int(player.gold)]
+		_bet_status.add_theme_color_override("font_color", MUTED)
+	if _bet_plus != null:
+		_bet_plus.disabled = bet_amount >= cap
+		_bet_minus.disabled = bet_amount <= 0
+
+## Painel compacto da aposta, entre as provocações e o botão de entrar.
+func build_bet_panel() -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", panel_style(PANEL_DARK, 8, 8))
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 2)
+	panel.add_child(box)
+	box.add_child(make_label("APOSTA NO SEU COMBATE", 12, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 8)
+	box.add_child(row)
+	_bet_minus = make_button("−", RED)
+	_bet_minus.custom_minimum_size = Vector2(44, 34)
+	_bet_minus.pressed.connect(adjust_bet.bind(-1))
+	row.add_child(_bet_minus)
+	_bet_amount_label = make_label("0 ouro", 16, INK, HORIZONTAL_ALIGNMENT_CENTER)
+	_bet_amount_label.custom_minimum_size = Vector2(120, 0)
+	row.add_child(_bet_amount_label)
+	_bet_plus = make_button("+", GREEN)
+	_bet_plus.custom_minimum_size = Vector2(44, 34)
+	_bet_plus.pressed.connect(adjust_bet.bind(1))
+	row.add_child(_bet_plus)
+	var max_button := make_button("TUDO (TETO)", GOLD)
+	max_button.custom_minimum_size = Vector2(140, 34)
+	max_button.pressed.connect(bet_max)
+	row.add_child(max_button)
+	var clear_button := make_button("LIMPAR", MUTED)
+	clear_button.custom_minimum_size = Vector2(100, 34)
+	clear_button.pressed.connect(bet_clear)
+	row.add_child(clear_button)
+	_bet_odd_label = make_label("Odd ×1.00", 14, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	box.add_child(_bet_odd_label)
+	_bet_payout_label = make_label("Retorno se vencer: 0 ouro", 12, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	box.add_child(_bet_payout_label)
+	_bet_status = make_label("", 11, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	box.add_child(_bet_status)
+	refresh_bet()
+	return panel
 
 func build_interface() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -90,6 +181,8 @@ func build_interface() -> void:
 	root.add_child(make_label("ÍNDICE DE PODER = STR×2 + ATT×1,5 + DEF×1,5 + AGI×1,5 + VIT×1 + CAR×0,5 + SOR×1 + NÍVEL×5", 10, DIM, HORIZONTAL_ALIGNMENT_CENTER))
 	# Provocações sorteadas (uma de cada lado).
 	root.add_child(build_taunts())
+	# APOSTA no próprio combate (item 5): odd pelo Índice de Poder, teto por nível.
+	root.add_child(build_bet_panel())
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(spacer)

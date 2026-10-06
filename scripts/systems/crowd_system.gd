@@ -53,6 +53,7 @@ const DELTA_MISSED := -5
 const DELTA_DEFEND := -3
 const DELTA_RETREAT := -6
 const DELTA_SLEEP := -4
+const DELTA_POTION := -4
 const DELTA_STALEMATE := -2
 ## Tédio por rodada "normal": garante que a barra não fique parada no teto.
 const DELTA_ROUND_DECAY := -1
@@ -169,6 +170,10 @@ func apply_event(event_id: String) -> Dictionary:
 		"sleep":
 			delta = DELTA_SLEEP
 			reset_action_streaks()
+		"potion":
+			# Tomar poção no meio da luta esfria a plateia: é remédio, não show.
+			delta = DELTA_POTION
+			reset_action_streaks()
 		"exhibit":
 			delta = _next_exhibit_delta()
 			exposed = true
@@ -233,6 +238,8 @@ static func label_for(event_id: String) -> String:
 			return "recuou"
 		"sleep":
 			return "dormiu"
+		"potion":
+			return "bebeu poção"
 		"exhibit":
 			return "exibição"
 		"cold":

@@ -56,13 +56,26 @@ godot --headless --path . --quit
 - **Avançar / Recuar**: mover na arena — uma ação por turno (ou você se move, ou ataca/defende).
 - **Alcance**: armas melee só acertam de perto; armas de longo alcance (ex.: arco curto) erram mais conforme a distância.
 
-O jogo gira em torno da **CIDADE** — agora um **cenário** com os locais clicáveis sobre ele (Arena Livre, os três torneios, Loja, Descansar, Personagem/Bolsa e Novo Gladiador) e o **HUD do personagem** no canto (nome, nível, **RANK**, vida, armadura, ouro e **KD**). Lá você **descansa** (pagando ouro proporcional à vida **e à armadura** faltantes — sem ouro suficiente, recupera só o proporcional), luta na **Arena Livre**, se inscreve em **torneios**, vai à **loja** e abre o **Personagem/Bolsa**.
+O jogo gira em torno da **CIDADE** — agora um **cenário** com os locais clicáveis sobre ele (Arena Livre, os três torneios, Loja, Descansar, **Médico**, **Ferreiro**, **Treinador**, Personagem/Bolsa e Novo Gladiador) e o **HUD do personagem** no canto (nome, nível, **RANK**, vida, armadura, ouro e **KD**). Lá você **descansa** (pagando ouro proporcional à vida **e à armadura** faltantes — sem ouro suficiente, recupera só o proporcional), luta na **Arena Livre**, se inscreve em **torneios**, vai à **loja** e abre o **Personagem/Bolsa**.
 
 **RANK e KD** (separado do nível): cada luta **soma ou tira pontos de rank** conforme a força do adversário — vencer alguém mais forte rende muito, vencer muito mais fraco rende **zero** (bater na arena fraca satura e **não** leva ao topo), e perder para alguém de rank menor dói mais. As faixas dão **título**: Areia · Pedra · Ferro · Aço · Prata · Ouro · Campeão · Lenda, com **rebaixa** se você cair do piso. O **rank é requisito de acesso**: Arena Livre é aberta, **Torneio Menor exige Pedra**, **Maior exige Aço** e **Grande exige Ouro** — na cidade o destino aparece **trancado com o motivo** (*"Precisa de rank Aço — você está em Ferro"*). E rank maior significa **casa mais cheia**: sobe a felicidade inicial do público e o teto do multiplicador.
 
 **Apresentação antes da luta:** toda luta (Arena Livre e cada rodada de torneio) começa numa tela de **apresentação** — os dois lutadores frente a frente com **nome, apelido e descrição**, o inimigo declarando a própria **fraqueza**, um **VS** no meio com o **Índice de Poder** dos dois, os **7 atributos + VIDA MÁX + ARMADURA + RANK/KD** comparados em duas colunas, a **provocação sorteada** de cada lado e o botão **ENTRAR NA ARENA**. Nada acontece antes de você clicar.
 
 **Índice de Poder:** `round(STR×2,0 + ATT×1,5 + DEF×1,5 + AGI×1,5 + VIT×1,0 + CAR×0,5 + SOR×1,0 + NÍVEL×5,0)` — aparece na **apresentação** para os **dois** lados, para você comparar de relance quem leva vantagem (a tela de luta não mostra o índice).
+
+**Ferimentos** (consequência de perder): perder uma luta tem **75% de chance** (90% se você levou crítico) de deixar uma **sequela** — Braço quebrado (−3 STR), Costela rachada (−4 VIT) e outros 5 modelos. O ferimento **conta de verdade** no próximo combate e **não sara sozinho**: descansar recupera vida, mas a sequela **só sai no médico** (ou com a poção de cura de ferimento). No máximo **2 ativos** ao mesmo tempo e nenhum deles zera um atributo.
+
+**Pechincha** (na loja): botão **PECHINCHAR (x%)** antes de comprar — a chance vem de **CAR e SOR** (CAR 5 ≈ 49%, CAR 40 ≈ 91%) e o desconto vai até **35%** (média medida: 3,7% com CAR 5, **31,9%** com CAR 40). Cada item só pode ser pechinchado **uma vez**, e **falhar trava** aquele item.
+
+**Apostas** (na apresentação, antes de entrar): aposte ouro no **seu próprio combate**. A odd sai do **Índice de Poder** dos dois (`clamp(0,9/prob, 1,05, 2,00)`) e o teto é `min(ouro, 20 + 8×nível)`. Ganhou, recebe aposta × odd; perdeu, perdeu a aposta. O valor esperado é **sempre negativo** — apostar é emoção, não plano de negócios.
+
+**Poções** (compradas na aba **POÇÕES** da loja): cura **40 de vida** (30 ouro), **30 de armadura** (30), **+6 STR/AGI por 3 turnos** (45) e **cura 1 ferimento** (90). Usar **gasta o turno** e **consome o item**; não dá para usar fora da luta. Cabem até **5** na mochila.
+
+**Serviços da cidade** (três locais novos no cenário):
+- **» MÉDICO** — cura vida, armadura e **todos** os ferimentos por ouro (curar 1 ferimento: 25 no nível 1, 95 no nível 15).
+- **» FERREIRO** — **melhora a armadura de uma peça**: +1 de proteção por melhoria, **máximo 5 por peça**, com o preço subindo a cada melhoria (peça de nível 1: 31/49/67/85/103).
+- **» TREINADOR** — compra **XP** por ouro (`+8 + 4×nível` de XP por `25 + 10×nível`), mas com **teto de 35% do XP do nível** — não dá para comprar o nível inteiro.
 
 **Personagem e bolsa** (tela em duas colunas): à esquerda os **6 slots de equipamento**, à direita a **bolsa** com uma ficha por item (raridade, nível, bônus e **preço de venda** = 40% do preço de compra) e os botões **EQUIPAR** e **VENDER**. Dá para fazer o mesmo **arrastando**: item da bolsa → slot dele equipa; item do slot → bolsa desequipa (soltar em qualquer lugar da bolsa). O slot só aceita o tipo certo (arma na arma etc.) e o item **equipado não pode ser vendido** — desequipe primeiro. O **Gládio do Grande Gladiador** é único de torneio e aparece como **NÃO VENDÁVEL**. A tela mostra ainda a **barra de XP** até o próximo nível.
 

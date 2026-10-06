@@ -26,6 +26,7 @@ const ARMOUR_COLOR := Color("70b9e8")
 const CombatResolverScript := preload("res://scripts/systems/combat_resolver.gd")
 const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
 const CrowdSystemScript := preload("res://scripts/systems/crowd_system.gd")
+const PotionSystemScript := preload("res://scripts/systems/potion_system.gd")
 const FightResultScript := preload("res://scripts/models/fight_result.gd")
 const ContentRepositoryScript := preload("res://scripts/repositories/content_repository.gd")
 const SLOT_ORDER := ["weapon", "armor", "helmet", "gloves", "boots", "belt"]
@@ -58,6 +59,9 @@ var _criticals := 0
 var _damage_dealt := 0
 var _damage_taken := 0
 var _enemy_moves := 0
+## FERIMENTO (item 2): a luta ficou marcada por um crítico forte TOMADO pelo
+## jogador — agrava a chance de sequela na derrota.
+var _took_critical := false
 
 var status_label: Label
 var distance_label: Label
@@ -204,6 +208,8 @@ func start_new_fight() -> void:
 		return
 	GameState.current_enemy = foe
 	fight_active = true
+	# POÇÕES (item 6): marca que estamos EM LUTA — só aqui a bolsa deixa usar poção.
+	GameState.in_combat = true
 	round_number = 1
 	# Felicidade do público (item H): início pelo CARISMA dos dois lutadores, com
 	# piso de 60 em luta contra chefe (stage boss ou template "boss": true).
@@ -218,6 +224,7 @@ func start_new_fight() -> void:
 	_damage_dealt = 0
 	_damage_taken = 0
 	_enemy_moves = 0
+	_took_critical = false
 	combat_results = []
 	last_action_result = {}
 	distance = CombatResolverScript.ARENA_START_RANGE
@@ -248,6 +255,7 @@ func _build_action_buttons() -> void:
 	_add_action_button("RECUAR", "retreat", Color("d9a45b"))
 	_add_action_button(_taunt_label(), "taunt", Color("e06bb5"))
 	_add_action_button("DORMIR", "sleep", Color("8f83b3"))
+	_add_potion_buttons()
 	var skill: Dictionary = GameState.player_skill()
 	if not skill.is_empty():
 		_add_action_button(str(skill.get("display_name", "Habilidade")), "skill", Color("b08de7"))
@@ -257,6 +265,22 @@ func _add_action_button(text_value: String, kind: String, color: Color) -> void:
 	button.pressed.connect(player_action.bind(kind))
 	_action_buttons[kind] = button
 	action_row.add_child(button)
+
+## POÇÕES (item 6): uma AÇÃO por tipo de poção na bolsa, com a contagem no rótulo.
+## Usar gasta o turno (o inimigo age depois) e consome o item.
+func _add_potion_buttons() -> void:
+	var potions: Array[Dictionary] = PotionSystemScript.potions(GameState.player)
+	var seen: Dictionary = {}
+	for entry: Dictionary in potions:
+		var item_id := str(entry.get("id", ""))
+		if item_id == "" or seen.has(item_id):
+			continue
+		seen[item_id] = true
+		var count := 0
+		for other: Dictionary in potions:
+			if str(other.get("id", "")) == item_id:
+				count += 1
+		_add_action_button("POÇÃO: %s (%d)" % [str(entry.get("display_name", "poção")), count], "potion:%s" % item_id, Color("79cf7b"))
 
 func _taunt_label() -> String:
 	var chance := 0.0
@@ -276,6 +300,18 @@ func player_action(kind: String) -> void:
 	var defense_bonus := 0
 	var enemy_phase_consumed := false
 	var attacked := false
+	# POÇÕES (item 6): usar uma poção é a ação do turno — aplica o efeito, consome
+	# o item e deixa o inimigo agir. Se a poção não servir (nada a curar), o turno
+	# é DEVOLVIDO (o inimigo não ganha uma ação de graça).
+	if kind.begins_with("potion:"):
+		var used: bool = _player_use_potion(kind.substr("potion:".length()))
+		refresh()
+		await get_tree().create_timer(0.35).timeout
+		if used:
+			enemy_turn(0)
+		else:
+			_finish_round()
+		return
 	match kind:
 		"advance":
 			_advance_player(false)
@@ -372,6 +408,12 @@ func enemy_turn(defense_bonus: int) -> void:
 
 ## Fecha o turno: incrementa a rodada, atualiza a tela e devolve as ações (ou derrota).
 func _finish_round() -> void:
+	# POÇÕES (item 6): os buffs temporários duram N TURNOS — ao fechar a rodada
+	# passam um turno e os que expirarem avisam no log.
+	if GameState.player != null:
+		for buff: Variant in GameState.player.tick_buffs():
+			if buff is Dictionary:
+				log_lines.append("[color=#bbaec1]O efeito de poção em %s acabou.[/color]" % str((buff as Dictionary).get("attr", "atributo")))
 	# Rodada fria (ninguém perdeu vida) faz o público vaiar; rodada normal esfria
 	# devagar — assim a barra nunca fica parada no teto.
 	if crowd != null:
@@ -463,6 +505,27 @@ func _player_exhibit() -> void:
 	_play_pose(true, "defend", 0.6)
 	log_lines.append("[color=#f5c451]%s se exibe para o público![/color]" % GameState.player.display_name)
 	_crowd_event("exhibit")
+
+## POÇÕES (item 6): bebe uma poção da mochila durante a luta. O efeito é aplicado
+## pelo GameState (regra única) e o item é CONSUMIDO. Devolve false se a poção não
+## deu em nada (aí o turno é devolvido ao jogador).
+func _player_use_potion(item_id: String) -> bool:
+	var info: Dictionary = GameState.use_potion(item_id)
+	if not bool(info.get("ok", false)):
+		log_lines.append("[color=#bbaec1]Não foi possível usar a poção: %s.[/color]" % str(info.get("reason", "sem efeito")))
+		return false
+	var item: Dictionary = info.get("item", {})
+	var effect_label := "efeito"
+	if not item.is_empty():
+		effect_label = PotionSystemScript.effect_label(item)
+	_play_pose(true, "defend", 0.5)
+	log_lines.append("[color=#79cf7b]%s bebe %s — %s.[/color]" % [GameState.player.display_name, str(item.get("display_name", "uma poção")), str(info.get("message", effect_label))])
+	_spawn_status_text(true, "POÇÃO", Color("79cf7b"))
+	_crowd_event("potion")
+	# Refaz os botões: a contagem baixou e a poção acaba some quando zera.
+	_build_action_buttons()
+	_apply_action_states()
+	return true
 
 ## Registra um evento de público, escreve a variação no log e solta um balão.
 func _crowd_event(event_id: String) -> Dictionary:
@@ -572,6 +635,9 @@ func _apply_combat_result(attacker, target, message: String, result: Dictionary)
 	_total_hits += 1
 	if bool(result.get("critical", false)):
 		_criticals += 1
+	# FERIMENTO (item 2): um crítico forte TOMADO pelo jogador marca a luta.
+	if target_is_player and bool(result.get("critical", false)):
+		_took_critical = true
 	var entered := int(result.get("entered", 0))
 	if is_player_attack:
 		_damage_dealt += entered
@@ -613,7 +679,12 @@ func _apply_action_states() -> void:
 		_action_buttons["taunt"].text = _taunt_label()
 	for kind: Variant in _action_buttons.keys():
 		var button: Button = _action_buttons[kind]
-		match str(kind):
+		var key := str(kind)
+		# POÇÕES (item 6): a poção é sempre uma ação disponível no seu turno.
+		if key.begins_with("potion:"):
+			button.disabled = false
+			continue
+		match key:
 			"advance":
 				button.disabled = not can_advance
 			"retreat":
@@ -688,10 +759,14 @@ func win_fight() -> void:
 		var rank_points: int = int(GameState.player.rank_points) if GameState.player != null else 0
 		crowd_mult = float(crowd.reward_multiplier(rank_points))
 	var rewards_spec: Dictionary = EconomySystemScript.fight_rewards(GameState.player.level)
-	var rewards: Dictionary = GameState.on_victory(int(rewards_spec.gold), int(rewards_spec.experience), crowd_mult)
+	var rewards: Dictionary = GameState.on_victory(int(rewards_spec.gold), int(rewards_spec.experience), crowd_mult, _took_critical)
 	var result = FightResultScript.new(true, round_number)
 	_fill_result(result, int(rewards.gold), int(rewards.experience))
 	_apply_rank_to_result(result, rewards.get("rank", {}))
+	_apply_bet_to_result(result, rewards.get("bet", {}))
+	_apply_injury_to_result(result, rewards.get("injury", {}))
+	if result.injured:
+		log_lines.append("[color=#e08a8a]FERIMENTO: %s — passe no MÉDICO.[/color]" % str((result.injury as Dictionary).get("label", "ferido")))
 	result.leveled_up = bool(rewards.leveled_up)
 	result.boss = was_boss
 	result.campaign_cleared = bool(rewards.campaign_cleared)
@@ -708,10 +783,14 @@ func win_fight() -> void:
 func lose_fight() -> void:
 	fight_active = false
 	set_actions_enabled(false)
-	var outcome: Dictionary = GameState.on_defeat()
+	var outcome: Dictionary = GameState.on_defeat(_took_critical)
 	var result = FightResultScript.new(false, round_number)
 	_fill_result(result, 0, 0)
 	_apply_rank_to_result(result, outcome.get("rank", {}))
+	_apply_bet_to_result(result, outcome.get("bet", {}))
+	_apply_injury_to_result(result, outcome.get("injury", {}))
+	if result.injured:
+		log_lines.append("[color=#e08a8a]FERIMENTO: %s — passe no MÉDICO.[/color]" % str((result.injury as Dictionary).get("label", "ferido")))
 	result.boss = bool(outcome.boss)
 	result.campaign_lost = bool(outcome.campaign_lost)
 	result.penalty = int(outcome.penalty)
@@ -747,6 +826,24 @@ func _apply_rank_to_result(result, rank_info: Dictionary) -> void:
 	result.rank_title = str(rank_info.get("new_title", ""))
 	result.rank_promoted = bool(rank_info.get("promoted", false))
 	result.rank_demoted = bool(rank_info.get("demoted", false))
+
+## Copia o resultado da APOSTA (item 5) para a tela de resultado.
+func _apply_bet_to_result(result, bet_info: Dictionary) -> void:
+	if bet_info.is_empty() or not bool(bet_info.get("active", false)):
+		return
+	result.bet_active = true
+	result.bet_stake = int(bet_info.get("stake", 0))
+	result.bet_odd = float(bet_info.get("odd", 0.0))
+	result.bet_won = bool(bet_info.get("won", false))
+	result.bet_payout = int(bet_info.get("payout", 0))
+
+## Copia o FERIMENTO (item 2) deixado por esta luta para a tela de resultado.
+func _apply_injury_to_result(result, injury_info: Dictionary) -> void:
+	if injury_info.is_empty():
+		return
+	var injury: Dictionary = injury_info.get("injury", {})
+	result.injured = bool(injury_info.get("injured", false)) and not injury.is_empty()
+	result.injury = injury
 
 func refresh() -> void:
 	status_label.text = "NÍVEL %d  •  %d XP  •  %d OURO  •  RODADA %d  •  %s" % [GameState.player.level, GameState.player.experience, GameState.player.gold, round_number, arena_band_title]
