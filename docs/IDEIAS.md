@@ -18,7 +18,12 @@ e arena mais cheia conforme o rank (item **I**).
 
 ---
 
-## A. Atributos no estilo SOS (8 categorias) — *grande*
+## A. Atributos no estilo SOS — **APROVADO (decisão de 06/10: 6 atributos)**
+
+> **Decisão final do dono do projeto:** STR = ataque para melee + força do taunt · ATT = precisão · DEF =
+> chance de defender, uma parte do dano é bloqueada · AGI = chance de esquivar, não toma dano · VIT = vida
+> máxima · CHA = preço, felicidade do público e exibição (aumenta a felicidade). **STA: não implementar.
+> MAG: não implementar.** Especificação completa em [`PLANO_2.0.md`](PLANO_2.0.md).
 
 **Estado hoje:** 4 atributos (`health`/`attack`/`defense`/`luck`) em `scripts/models/gladiator_data.gd`,
 distribuídos na criação (`scripts/ui/creation_screen.gd`) e usados em `scripts/systems/combat_resolver.gd`.
@@ -31,14 +36,14 @@ stamina · magicka`, com *skill points* para distribuir. Na comparação da luta
 
 | Atributo | O que faz aqui | Onde encosta |
 | --- | --- | --- |
-| **Força (STR)** | dano corpo a corpo (o que hoje é `attack` para melee) | `combat_resolver` (cálculo de dano) |
-| **Ataque (ATT)** | precisão — chance de acertar (hoje existe `accuracy` no resolver, sem atributo por trás) | `combat_resolver.resolve_attack` |
-| **Defesa (DEF)** | chance de **aparar/auto-defender** (reduz o dano) | `combat_resolver` (defesa automática) |
-| **Agilidade (AGI)** | esquiva + iniciativa (quem age primeiro no turno) | `combat_resolver` (evasão/ordem) |
-| **Vitalidade (VIT)** | vida máxima (hoje `health`) | `gladiator_data` |
-| **Carisma (CHA)** | preço na loja, prêmio dos torneios e eficácia do Taunt | `economy_system`, `shop_screen`, Taunt (item C) |
-| **Fôlego (STA)** | nº de ações/sequência por turno — hoje é 1 ação sempre | `combat_resolver`, `arena_screen` |
-| **Magicka (MAG)** | base para magias (depende do item F) | novo sistema de magia |
+| **STR** | dano corpo a corpo (melee) e peso no sucesso do Taunt | `combat_resolver` |
+| **ATT** | precisão — chance de acertar | `combat_resolver` |
+| **DEF** | chance de **defender**: uma parte do dano é bloqueada | `combat_resolver` |
+| **AGI** | chance de **esquivar** — não toma dano | `combat_resolver` |
+| **VIT** | vida máxima | `gladiator_data` |
+| **CHA** | preço na loja, felicidade do público e **exibição** | `economy_system`, `shop_screen`, `arena_screen` (item H) |
+| ~~STA~~ | **não implementar** (decisão do dono) | — |
+| ~~MAG~~ | **não implementar** (decisão do dono) | — |
 
 **Por que:** é o item que mais muda a sensação de construir personagem — distribuir 20 pontos entre 8
 atributos com efeitos distintos gera builds (bruto, ágil, carismático/negociador, mago).
@@ -73,9 +78,9 @@ tooltip). Bom momento para **reaproveitar os assets hoje órfãos** (`assets/spr
 
 **Referência:** balão `Taunt: (99%)` sobre o lutador — a ação é anunciada com a chance de funcionar.
 
-**Proposta:** ação de turno que força o inimigo a te atacar (em vez de recuar/defender/usar magia) por
-1–2 turnos, com chance de sucesso = f(Carisma do provocador vs Carisma/sabedoria do alvo). Serve para
-controlar a luta (segurar o inimigo longe do seu aliado, impedir que ele fuja).
+**Regra aprovada (decisão de 06/10):** o Taunt faz o adversário sofrer um **efeito aleatório**, sendo **o mais
+comum forçá-lo a dar um passo à frente** (quando possível); **se não puder avançar, ele te ataca com precisão
+baixa**. Chance de sucesso em função de **CHA** (com peso de STR), mostrada na tela (ex.: `Taunt: (73%)`).
 **Onde encosta:** `combat_resolver` (nova ação), `arena_screen` (botão), IA do inimigo (`enemy_*`/resolver).
 **Esforço:** pequeno. **Depende de:** Carisma (item A) para a fórmula; sem ele, usa Sorte.
 **Como verificar:** simulação com N lutas mostrando a % real de inimigos que atacam em vez de recuar com
@@ -102,13 +107,13 @@ mostrando que usar Sleep toda hora **piora** a taxa de vitória (senão é explo
 **Referência:** no print da luta existem **duas barras por lutador**: `HEALTH 170/170` e `ARMOUR 450/450`
 (o inimigo em `199/318`); a comparação antes da luta mostra vida, armadura e poções lado a lado.
 
-**Proposta:**
-1. **Armadura vira uma reserva própria** (não só bônus de defesa): o dano come a armadura primeiro e só
-   depois encosta na vida; itens passam a ter "armadura" (peitoral/capacete/luvas/botas/cinto somam), e a
-   armadura se recupera (parte) entre lutas ou com ferreiro.
-2. **Auto-defesa:** a defesa dá chance de **aparar** (reduz o dano do golpe que entrou).
-3. **Evasão:** o ataque pode **errar** conforme Ataque do atacante vs Agilidade do alvo (o `accuracy` do
-   resolver já existe e hoje é passado fixo — vira atributo).
+**Regra aprovada (decisão de 06/10):**
+1. **A armadura dos itens conta como proteção para a vida** — pool separado: o dano consome armadura primeiro
+   e só o excedente fere a vida. A tela de luta mostra **duas barras com números**: `HEALTH x/y` e `ARMOUR x/y`.
+2. **Auto-defesa e evasão são calculadas quando o inimigo tenta te atacar:** se der **esquiva**, aparece
+   **"ERROU"** (dano zero); se der **defesa**, faz a **animação de defesa** e mostra **quanto foi aparado e
+   quanto de dano entrou** (ex.: `aparou 6, entrou 4`); senão é dano cheio.
+3. **Evasão** vem da AGI; **defesa** vem da DEF contra a precisão (ATT) de quem ataca.
 
 **Por que:** hoje a defesa é só subtração de dano, então "defesa" e "vida" são quase a mesma coisa; com
 reserva + aparar + esquivar, equipar armadura pesada vira uma escolha de estilo (aguentar vs esquivar).
