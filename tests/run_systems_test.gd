@@ -7,6 +7,7 @@ extends SceneTree
 const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
 const CombatResolverScript := preload("res://scripts/systems/combat_resolver.gd")
 const CrowdSystemScript := preload("res://scripts/systems/crowd_system.gd")
+const RankSystemScript := preload("res://scripts/systems/rank_system.gd")
 const GladiatorDataScript := preload("res://scripts/models/gladiator_data.gd")
 const ItemDataScript := preload("res://scripts/models/item_data.gd")
 const ContentRepositoryScript := preload("res://scripts/repositories/content_repository.gd")
@@ -49,6 +50,14 @@ func _initialize() -> void:
 	_test_crowd_multiplier_and_quick_fight()
 	_test_counter_attack_on_block()
 	_test_crowd_anti_exploit()
+	_test_rank_tiers_and_titles()
+	_test_rank_win_loss_by_strength()
+	_test_rank_floor_and_demotion()
+	_test_rank_access_gate()
+	_test_rank_kd_and_save_migration()
+	_test_rank_arena_bands()
+	_test_rank_crowd_bonus()
+	_test_rank_anti_farm()
 	if _failures == 0:
 		print("PASS: todos os testes de regras passaram.")
 		quit(0)
@@ -738,3 +747,132 @@ func _check(condition: bool, label: String) -> void:
 	else:
 		_failures += 1
 		printerr("  FALHOU - %s" % label)
+
+# --- RANK e KD (item I) -----------------------------------------------------
+
+## As oito faixas com título e os cortes exatos de data/ranks.json.
+func _test_rank_tiers_and_titles() -> void:
+	var tiers: Array = RankSystemScript.tiers()
+	_check(tiers.size() == 8, "existem 8 faixas de rank")
+	var expected := [
+		[0, "Areia"], [199, "Areia"], [200, "Pedra"], [499, "Pedra"], [500, "Ferro"],
+		[899, "Ferro"], [900, "Aço"], [1499, "Aço"], [1500, "Prata"], [2299, "Prata"],
+		[2300, "Ouro"], [3499, "Ouro"], [3500, "Campeão"], [4999, "Campeão"], [5000, "Lenda"],
+	]
+	for pair: Array in expected:
+		_check(RankSystemScript.title_for(int(pair[0])) == str(pair[1]), "%d pts = %s" % [int(pair[0]), str(pair[1])])
+	_check(int(RankSystemScript.next_tier(0).get("min", -1)) == 200, "próxima faixa de Areia = Pedra (200)")
+	_check(RankSystemScript.points_to_next(0) == 200 and RankSystemScript.points_to_next(190) == 10, "pontos para a próxima faixa somam certo")
+	_check(RankSystemScript.next_tier(5000).is_empty(), "Lenda é a última faixa")
+	_check(str(RankSystemScript.tier_for(5000).get("id", "")) == "lenda", "tier_for(5000) = lenda")
+
+## Vencer mais forte rende MUITO; vencer muito mais fraco rende ~0; perder tira e
+## perder para rank menor dói mais.
+func _test_rank_win_loss_by_strength() -> void:
+	var weak := RankSystemScript.opponent_rating(1, 1, false)
+	var strong := RankSystemScript.opponent_rating(10, 1, false)
+	_check(RankSystemScript.win_gain(500, strong) > RankSystemScript.win_gain(500, weak), "vencer mais FORTE rende mais (vs forte +%d > vs fraco +%d)" % [RankSystemScript.win_gain(500, strong), RankSystemScript.win_gain(500, weak)])
+	_check(RankSystemScript.win_gain(0, strong) > RankSystemScript.win_gain(0, weak), "no início, o forte ainda rende mais")
+	_check(RankSystemScript.win_gain(1500, weak) == 0, "vencer alguém muito mais fraco rende 0 (piso)")
+	_check(RankSystemScript.win_gain(1500, strong) > 0, "mas o mesmo ponto da escada ainda ganha contra alguém mais forte")
+	_check(RankSystemScript.loss_penalty(500, weak) > 0, "perder SEMPRE tira pontos (piso)")
+	_check(RankSystemScript.loss_penalty(1500, weak) > RankSystemScript.loss_penalty(1500, strong), "perder para rank bem menor tira mais (%d > %d)" % [RankSystemScript.loss_penalty(1500, weak), RankSystemScript.loss_penalty(1500, strong)])
+	# A régua usa nível+tier do adversário: um chefe vale mais.
+	_check(RankSystemScript.opponent_rating(5, 3, true) > RankSystemScript.opponent_rating(5, 3, false), "chefe tem rating maior que o mesmo nível/tier comum")
+
+## Piso 0 e rebaixa ao cair abaixo do piso da faixa (com promoção simétrica).
+func _test_rank_floor_and_demotion() -> void:
+	var floor_info: Dictionary = RankSystemScript.resolve_result(3, 100000, false)
+	_check(int(floor_info.points) == 0, "os pontos nunca ficam negativos (piso 0)")
+	var drop: Dictionary = RankSystemScript.resolve_result(520, RankSystemScript.opponent_rating(1, 1, false), false)
+	_check(int(drop.points) < 500 and bool(drop.demoted), "cair do piso de Ferro REBAIXA para Pedra (520 → %d)" % int(drop.points))
+	_check(str(drop.new_title) == "Pedra", "título após a rebaixa = Pedra")
+	var up: Dictionary = RankSystemScript.resolve_result(190, RankSystemScript.opponent_rating(10, 1, false), true)
+	_check(int(up.points) >= 200 and bool(up.promoted), "cruzar o piso PROMOVE (190 → %d, %s)" % [int(up.points), str(up.new_title)])
+
+## Acesso por rank: Arena Livre aberta; Menor a partir de Pedra; Maior de Aço;
+## Grande de Ouro — com o motivo visível do bloqueio.
+func _test_rank_access_gate() -> void:
+	_check(RankSystemScript.meets(0, "free_arena"), "Arena Livre é aberta para todos")
+	_check(RankSystemScript.requirement_for("t1") == 200, "Torneio Menor exige Pedra (200)")
+	_check(RankSystemScript.requirement_for("t2") == 900, "Torneio Maior exige Aço (900)")
+	_check(RankSystemScript.requirement_for("t3") == 2300, "Grande Torneio exige Ouro (2300)")
+	_check(RankSystemScript.meets(200, "t1") and not RankSystemScript.meets(199, "t1"), "libera em 200 e bloqueia em 199 (Menor)")
+	_check(not RankSystemScript.meets(899, "t2") and RankSystemScript.meets(900, "t2"), "Maior libera exatamente em 900")
+	_check(not RankSystemScript.meets(2299, "t3") and RankSystemScript.meets(2300, "t3"), "Grande libera exatamente em 2300")
+	var reason: String = RankSystemScript.lock_reason(500, "t2")
+	_check(reason.contains("Aço") and reason.contains("Ferro"), "motivo do bloqueio cita o requisito e o rank atual ('%s')" % reason)
+	_check(RankSystemScript.lock_reason(900, "t2") == "", "sem motivo quando o rank basta")
+
+## KD soma certo; save novo preserva rank/KD e save antigo migra para Areia/0.
+func _test_rank_kd_and_save_migration() -> void:
+	var fighter = _fighter({"id": "rank", "base_vitality": 8})
+	var weak := RankSystemScript.opponent_rating(1, 1, false)
+	var strong := RankSystemScript.opponent_rating(12, 2, false)
+	RankSystemScript.apply_to(fighter, strong, true)
+	RankSystemScript.apply_to(fighter, strong, true)
+	RankSystemScript.apply_to(fighter, strong, false)
+	RankSystemScript.apply_to(fighter, weak, false)
+	_check(fighter.wins == 2 and fighter.losses == 2, "KD soma certo (2 V / 2 D)")
+	var points_after := int(fighter.rank_points)
+	_check(points_after > 0, "as vitórias contra o forte somaram pontos (%d)" % points_after)
+	# Round-trip do save novo.
+	var data: Dictionary = fighter.to_save_data()
+	var loaded = _fighter(data)
+	_check(int(loaded.rank_points) == points_after and loaded.wins == 2 and loaded.losses == 2, "save novo preserva rank e KD")
+	# Migração: save antigo, sem as chaves rank/KD, entra em Areia com 0.
+	var old = _fighter({"id": "old", "base_max_health": 60, "base_attack": 10, "base_defense": 4, "base_luck": 6, "health": 60})
+	_check(old.rank_points == 0 and old.wins == 0 and old.losses == 0, "save antigo migra para 0 pontos (Areia)")
+	_check(RankSystemScript.title_for(old.rank_points) == "Areia", "save antigo entra em Areia")
+
+## Arenas por faixa (ideia 9): pelo menos 3 faixas, com ouro e risco crescentes.
+func _test_rank_arena_bands() -> void:
+	var bands: Array = RankSystemScript.arena_bands()
+	_check(bands.size() >= 3, "há pelo menos 3 faixas de arena (encontrei %d)" % bands.size())
+	var areia := RankSystemScript.arena_band_for(0)
+	var ferro := RankSystemScript.arena_band_for(500)
+	var prata := RankSystemScript.arena_band_for(1500)
+	_check(str(areia.id) == "areia" and str(ferro.id) == "ferro" and str(prata.id) == "prata", "faixa de arena muda nos cortes 0/500/1500")
+	_check(float(areia.gold_multiplier) < float(ferro.gold_multiplier) and float(ferro.gold_multiplier) < float(prata.gold_multiplier), "faixa maior paga mais ouro (×%.2f < ×%.2f < ×%.2f)" % [float(areia.gold_multiplier), float(ferro.gold_multiplier), float(prata.gold_multiplier)])
+	_check(int(areia.enemy_level_bonus) < int(ferro.enemy_level_bonus) and int(ferro.enemy_level_bonus) <= int(prata.enemy_level_bonus), "faixa maior traz mais risco (nível +%d/+%d/+%d)" % [int(areia.enemy_level_bonus), int(ferro.enemy_level_bonus), int(prata.enemy_level_bonus)])
+	_check(str(areia.get("id", "")) == "areia", "arena_band_for(0) resolve para Areia")
+
+## Arena mais lotada: o rank eleva o INÍCIO e o TETO da felicidade e do multiplicador.
+func _test_rank_crowd_bonus() -> void:
+	var foe = _fighter({"id": "e", "base_charisma": 5})
+	var low = _fighter({"id": "p", "base_charisma": 5})
+	var base := CrowdSystemScript.initial_happiness(low, foe, false, 0)
+	var high := CrowdSystemScript.initial_happiness(low, foe, false, 5000)
+	_check(high > base, "rank alto eleva o início da felicidade (%d > %d)" % [high, base])
+	# Mesma felicidade final, multiplicador maior com rank (teto sobe).
+	var c0 = CrowdSystemScript.new(low, foe, false, 0)
+	c0.actions = 10
+	c0.happiness = 100
+	var c1 = CrowdSystemScript.new(low, foe, false, 5000)
+	c1.actions = 10
+	c1.happiness = 100
+	_check(c1.reward_multiplier(5000) > c0.reward_multiplier(0), "rank alto eleva o teto do multiplicador (×%.2f > ×%.2f)" % [c1.reward_multiplier(5000), c0.reward_multiplier(0)])
+	_check(is_equal_approx(c0.reward_multiplier(0), CrowdSystemScript.MULTIPLIER_MAX), "sem rank o teto continua ×2,0 (nada mudou para quem está em Areia)")
+	_check(high <= CrowdSystemScript.MAX_VALUE, "o início continua respeitando o teto de 100 da barra")
+
+## ANTI-FARM (item I): um vencedor eterno da arena mais fraca NÃO chega ao topo.
+## Mede e imprime o número; prova também que a escada satura (farm para de render).
+func _test_rank_anti_farm() -> void:
+	var weak := RankSystemScript.opponent_rating(1, 1, false)
+	var farmer := 0
+	for i in 500:
+		farmer = int(RankSystemScript.resolve_result(farmer, weak, true).points)
+	var farmer_plateau := farmer
+	for i in 1500:
+		farmer_plateau = int(RankSystemScript.resolve_result(farmer_plateau, weak, true).points)
+	var top_floor := int(RankSystemScript.tiers()[RankSystemScript.tiers().size() - 1].get("min", 5000))
+	print("    anti-farm: 500 vitórias na arena fraca → %d pts (%s); +1.500 vitórias → %d pts (satura)" % [farmer, RankSystemScript.title_for(farmer), farmer_plateau])
+	_check(farmer_plateau < top_floor, "farm não chega ao topo do rank (%d < %d Lenda)" % [farmer_plateau, top_floor])
+	_check(farmer_plateau < 1500, "farm não passa de Prata (medido %d, piso de Prata 1.500)" % farmer_plateau)
+	_check(farmer_plateau <= farmer + 5, "a escada SATURA: 1.500 vitórias extras somam <= 5 pontos (%d → %d)" % [farmer, farmer_plateau])
+	# Um jogador que enfrenta gente mais forte sobe bem mais com o mesmo nº de lutas.
+	var climber := 0
+	for i in 500:
+		climber = int(RankSystemScript.resolve_result(climber, RankSystemScript.opponent_rating(mini(15, 1 + int(i / 34)), 2, false), true).points)
+	_check(climber > farmer_plateau * 2, "quem enfrenta gente mais forte sobe bem mais (%d > 2×%d)" % [climber, farmer_plateau])
+

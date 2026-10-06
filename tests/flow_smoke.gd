@@ -51,6 +51,8 @@ func _run_test() -> void:
 	await get_tree().create_timer(0.3).timeout
 	_check(_find_label_contains(app, "BOLSA") != null, "tela do personagem mostra a bolsa")
 	_check(_find_label_contains(app, "EQUIPAMENTO") != null, "tela do personagem mostra os 6 slots de equipamento")
+	_check(_find_label_contains(app, "RANK") != null, "tela do personagem mostra o RANK")
+	_check(_find_label_contains(app, "KD") != null, "tela do personagem mostra o KD (vitórias/derrotas)")
 	_check(_find_label_contains(app, "Arraste um item da bolsa") != null, "tela do personagem ensina o arrastar-e-soltar")
 	_check(_find_label_contains(app, "arraste um item equipado") != null, "a bolsa anuncia que e zona de desequipar")
 	_check(_find_by_method(app, "_get_drag_data") != null, "os paineis de item implementam arrastar-e-soltar")
@@ -75,6 +77,7 @@ func _run_test() -> void:
 	_check(_find_button_contains(app, "TAUNT:") != null, "ação TAUNT presente com a porcentagem na tela")
 	# Felicidade do público (item H): barra no topo + ação EXIBIR funcional.
 	_check(_find_label_contains(app, "PÚBLICO") != null, "arena mostra a barra de PÚBLICO no topo")
+	_check(str(arena.arena_band_title) != "", "arena mostra a faixa de arena (ideia 9): '%s'" % str(arena.arena_band_title))
 	_check(arena.crowd != null and int(arena.crowd.value()) >= 0 and int(arena.crowd.value()) <= 100, "barra de público na faixa 0..100 (medido %d)" % int(arena.crowd.value()))
 	var exhibit_btn = _find_button(app, "EXIBIR")
 	_check(exhibit_btn != null, "ação EXIBIR presente na arena")
@@ -141,6 +144,8 @@ func _run_test() -> void:
 	_check(GameState.player.gold == gold_saved and GameState.player.attack == attack_saved, "continue restaura ouro e atributos")
 	# 7) Torneio (acumula prêmio, cura na entrada, item por rodada, item único)
 	# Entrar machucado tem de curar: o torneio não tem descanso nem loja no meio.
+	# O Torneio Maior exige rank Aço (900): o jogador normal já teria subido até lá.
+	GameState.player.rank_points = 900
 	GameState.player.health = maxi(1, GameState.player.max_health - 30)
 	_check(GameState.start_tournament("t2"), "torneio inicia")
 	_check(GameState.player.health == GameState.player.max_health, "entrar no torneio enche a vida")
@@ -190,6 +195,33 @@ func _run_test() -> void:
 	_press_button(app, "VOLTAR AO ACAMPAMENTO")
 	await get_tree().create_timer(0.4).timeout
 	_check(_find_label_contains(app, "CIDADE") != null and GameState.has_save(), "fim do torneio volta à cidade e mantém o save")
+	# 9b) Cidade como cenário (item B) + bloqueio por rank (item I).
+	_check(_find_label_contains(app, "LOCAIS") != null, "cidade mostra os LOCAIS sobre o cenário")
+	_check(_find_label_contains(app, "RANK") != null, "HUD da cidade mostra o RANK")
+	_check(_count_texture_rects(app) > 0, "cidade usa cenário de fundo (assets de arena reaproveitados)")
+	for label in ["Arena Livre", "Loja", "Descansar", "PERSONAGEM E BOLSA", "NOVO GLADIADOR", "Torneio Menor", "Torneio Maior", "Grande Torneio"]:
+		_check(_find_button_contains(app, label) != null, "cidade: destino alcançável — %s" % label)
+	var menor_btn = _find_button_contains(app, "Torneio Menor")
+	var maior_btn = _find_button_contains(app, "Torneio Maior")
+	var grande_btn = _find_button_contains(app, "Grande Torneio")
+	_check(menor_btn != null and not menor_btn.disabled, "Torneio Menor liberado (rank Aço)")
+	_check(maior_btn != null and not maior_btn.disabled, "Torneio Maior liberado (rank Aço)")
+	_check(grande_btn != null and grande_btn.disabled and str(grande_btn.text).contains("TRANCADO"), "Grande Torneio TRANCADO (exige Ouro)")
+	_check(str(grande_btn.text).contains("Ouro"), "o destino trancado mostra o motivo do rank ('%s')" % str(grande_btn.text))
+	# Subir de rank destranca o destino (rebuild ao voltar à cidade).
+	GameState.player.rank_points = 5000
+	_press_button_contains(app, "PERSONAGEM E BOLSA")
+	await get_tree().create_timer(0.3).timeout
+	_press_button(app, "VOLTAR À CIDADE")
+	await get_tree().create_timer(0.3).timeout
+	var grande_freed = _find_button_contains(app, "Grande Torneio")
+	_check(grande_freed != null and not grande_freed.disabled, "Grande Torneio destranca com rank Ouro+")
+	# Diálogo de confirmação do NOVO GLADIADOR continua existindo.
+	_press_button_contains(app, "NOVO GLADIADOR")
+	await get_tree().create_timer(0.2).timeout
+	_check(_find_button(app, "APAGAR E COMEÇAR DE NOVO") != null, "NOVO GLADIADOR pede confirmação")
+	_press_button(app, "CANCELAR")
+	await get_tree().create_timer(0.2).timeout
 	# 10) Bolsa cheia: preço de venda visível e item único fora do mercado.
 	GameState.add_item_to_bag(ContentRepositoryScript.find_item(ContentRepositoryScript.load_items(), "dagger"))
 	_check(GameState.player.bag_items().size() >= 2, "add_item_to_bag coloca item na bolsa")
@@ -231,6 +263,14 @@ func _count_named(root: Node, prefix: String, found: int = 0) -> int:
 		found += 1
 	for child in root.get_children():
 		found = _count_named(child, prefix, found)
+	return found
+
+## Conta TextureRects na árvore: usado para provar que a cidade desenha cenário.
+func _count_texture_rects(root: Node, found: int = 0) -> int:
+	if root is TextureRect and root.texture != null:
+		found += 1
+	for child in root.get_children():
+		found = _count_texture_rects(child, found)
 	return found
 
 func _find_button(root: Node, text_value: String):

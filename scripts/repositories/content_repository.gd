@@ -6,6 +6,7 @@ const ITEMS_PATH := "res://data/items.json"
 const ARCHETYPES_PATH := "res://data/archetypes.json"
 const CAMPAIGN_PATH := "res://data/campaign.json"
 const TOURNAMENTS_PATH := "res://data/tournaments.json"
+const RANKS_PATH := "res://data/ranks.json"
 
 static func load_enemies() -> Array[Dictionary]:
 	return _load_array(ENEMIES_PATH)
@@ -21,6 +22,18 @@ static func load_campaign() -> Array[Dictionary]:
 
 static func load_tournaments() -> Array[Dictionary]:
 	return _load_array(TOURNAMENTS_PATH)
+
+## Faixas de rank, requisitos de acesso e faixas de arena (objeto, não array).
+static func load_ranks() -> Dictionary:
+	var file := FileAccess.open(RANKS_PATH, FileAccess.READ)
+	if file == null:
+		push_error("Conteúdo não encontrado: %s" % RANKS_PATH)
+		return {}
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if parsed is Dictionary:
+		return parsed
+	push_error("Conteúdo inválido: %s" % RANKS_PATH)
+	return {}
 
 static func find_item(items: Array[Dictionary], item_id: String) -> Dictionary:
 	for entry: Dictionary in items:

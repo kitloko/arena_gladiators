@@ -112,11 +112,19 @@ func _render_summary() -> void:
 	else:
 		var mult_text := ("%.1f" % float(_result.crowd_multiplier)).replace(".", ",")
 		lines.append("[color=#f5c451]Público: %d%% → recompensa ×%s[/color]" % [int(_result.crowd_happiness), mult_text])
+	# RANK/KD (item I): variação de rank da luta, com aviso de promoção/rebaixa.
+	if bool(_result.rank_change_known):
+		var delta := int(_result.rank_delta)
+		var sign_text := "+%d" % delta if delta >= 0 else "%d" % delta
+		lines.append("[color=#f5c451]RANK: %s — %s pts (%s)[/color]" % [str(_result.rank_title), int(_result.rank_points), sign_text])
+		if bool(_result.rank_promoted):
+			lines.append("[color=#79cf7b]PROMOVIDO de faixa![/color]")
+		elif bool(_result.rank_demoted):
+			lines.append("[color=#d95858]Você foi REBAIXADO de faixa.[/color]")
 	var summary := RichTextLabel.new()
 	summary.bbcode_enabled = true
 	summary.custom_minimum_size = Vector2(0, 170 if not _result.loot.is_empty() else 200)
 	summary.add_theme_font_size_override("normal_font_size", 17)
-	summary.add_theme_color_override("default_color", MUTED)
 	summary.add_theme_stylebox_override("normal", _panel_style(PANEL_DARK, 10, 20))
 	summary.text = "\n".join(lines)
 	_body.add_child(summary)

@@ -38,6 +38,13 @@ var pending_points: int = 0
 ## Felicidade do público (etapa futura): campo e leitura prontos, ainda não usado.
 var crowd_happiness: int = 0
 
+## RANK e KD (item I): SEPARADO do nível. Pontos de rank sobem/descem por luta
+## conforme a força do adversário (RankSystem); vitórias/derrotas formam o KD.
+## Save antigo (sem estas chaves) entra em Areia com 0/0/0 — nada é perdido.
+var rank_points: int = 0
+var wins: int = 0
+var losses: int = 0
+
 var base_strength: int = 8
 var base_attack: int = 8
 var base_defence: int = 3
@@ -91,6 +98,10 @@ func _init(values: Dictionary = {}) -> void:
 	# Aceita pending_points (novo) ou pending_level_ups (save antigo: converte em pontos).
 	pending_points = int(values.get("pending_points", int(values.get("pending_level_ups", 0)) * EconomySystemScript.attribute_points_per_level()))
 	crowd_happiness = int(values.get("crowd_happiness", 0))
+	# Rank/KD (item I): retrocompatível — save antigo sem as chaves entra em Areia (0/0/0).
+	rank_points = maxi(0, int(values.get("rank_points", 0)))
+	wins = maxi(0, int(values.get("wins", 0)))
+	losses = maxi(0, int(values.get("losses", 0)))
 	# Formato novo (7 atributos) quando traz qualquer chave nova; senão migra o
 	# formato antigo (health/attack/defense/luck) sem zerar nada.
 	var new_format: bool = int(values.get("attrs_version", 0)) >= ATTRS_VERSION or values.has("base_strength") or values.has("base_defence") or values.has("base_agility") or values.has("base_vitality") or values.has("base_charisma")
@@ -379,6 +390,9 @@ func to_save_data() -> Dictionary:
 		"gold": gold,
 		"pending_points": pending_points,
 		"crowd_happiness": crowd_happiness,
+		"rank_points": rank_points,
+		"wins": wins,
+		"losses": losses,
 		"base_strength": base_strength,
 		"base_attack": base_attack,
 		"base_defence": base_defence,

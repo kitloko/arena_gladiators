@@ -103,6 +103,9 @@ var _hero_tween: Tween
 var _enemy_tween: Tween
 var _hero_pose := "idle"
 var _enemy_pose := "idle"
+## Faixa de arena desta luta (ideia 9): id/título + cenário variado sem arte nova.
+var arena_band_id: String = "areia"
+var arena_band_title: String = "Arenas de Areia"
 
 func _ready() -> void:
 	_items = ContentRepositoryScript.load_items()
@@ -158,6 +161,10 @@ func build_interface() -> void:
 	_stage_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_stage_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stage.add_child(_stage_bg)
+	# Muralhas laterais (assets órfãos reaproveitados): dão profundidade ao palco
+	# sem inventar arte nova.
+	_add_stage_wall("arena", "arena_wall_left", true)
+	_add_stage_wall("arena", "arena_wall_right", false)
 	_hero_group = _make_fighter_group(true)
 	_enemy_group = _make_fighter_group(false)
 	_stage.add_child(_hero_group)
@@ -195,8 +202,11 @@ func start_new_fight() -> void:
 	round_number = 1
 	# Felicidade do público (item H): início pelo CARISMA dos dois lutadores, com
 	# piso de 60 em luta contra chefe (stage boss ou template "boss": true).
+	# O RANK (item I) eleva o início/teto — arena mais lotada nas faixas altas.
 	var is_boss: bool = GameState.is_boss_stage() or bool(foe.boss)
-	crowd = CrowdSystemScript.new(GameState.player, foe, is_boss)
+	var rank_points: int = int(GameState.player.rank_points) if GameState.player != null else 0
+	crowd = CrowdSystemScript.new(GameState.player, foe, is_boss, rank_points)
+	_apply_arena_band()
 	_round_cold = true
 	_total_hits = 0
 	_criticals = 0
@@ -666,14 +676,17 @@ func win_fight() -> void:
 	fight_active = false
 	set_actions_enabled(false)
 	var was_boss: bool = GameState.is_boss_stage()
-	# Felicidade do público (item H) → multiplicador de OURO da vitória (×1,0..×2,0).
+	# Felicidade do público (item H) → multiplicador de OURO da vitória (×1,0..×2,0;
+	# o teto sobe com o RANK — arena mais lotada, item I).
 	var crowd_mult := 1.0
 	if crowd != null:
-		crowd_mult = float(crowd.reward_multiplier())
+		var rank_points: int = int(GameState.player.rank_points) if GameState.player != null else 0
+		crowd_mult = float(crowd.reward_multiplier(rank_points))
 	var rewards_spec: Dictionary = EconomySystemScript.fight_rewards(GameState.player.level)
 	var rewards: Dictionary = GameState.on_victory(int(rewards_spec.gold), int(rewards_spec.experience), crowd_mult)
 	var result = FightResultScript.new(true, round_number)
 	_fill_result(result, int(rewards.gold), int(rewards.experience))
+	_apply_rank_to_result(result, rewards.get("rank", {}))
 	result.leveled_up = bool(rewards.leveled_up)
 	result.boss = was_boss
 	result.campaign_cleared = bool(rewards.campaign_cleared)
@@ -693,6 +706,7 @@ func lose_fight() -> void:
 	var outcome: Dictionary = GameState.on_defeat()
 	var result = FightResultScript.new(false, round_number)
 	_fill_result(result, 0, 0)
+	_apply_rank_to_result(result, outcome.get("rank", {}))
 	result.boss = bool(outcome.boss)
 	result.campaign_lost = bool(outcome.campaign_lost)
 	result.penalty = int(outcome.penalty)
@@ -715,9 +729,22 @@ func _fill_result(result, gold_value: int, xp_value: int) -> void:
 		result.quick_fight = crowd.is_quick_fight()
 	if foe != null:
 		result.opponent_name = foe.display_name
+	result.arena_band_id = arena_band_id
+	result.arena_band_title = arena_band_title
+
+## Copia a variação de rank da luta para o resultado exibido.
+func _apply_rank_to_result(result, rank_info: Dictionary) -> void:
+	if rank_info.is_empty():
+		return
+	result.rank_change_known = true
+	result.rank_delta = int(rank_info.get("delta", 0))
+	result.rank_points = int(rank_info.get("points", 0))
+	result.rank_title = str(rank_info.get("new_title", ""))
+	result.rank_promoted = bool(rank_info.get("promoted", false))
+	result.rank_demoted = bool(rank_info.get("demoted", false))
 
 func refresh() -> void:
-	status_label.text = "NÍVEL %d  •  %d XP  •  %d OURO  •  RODADA %d" % [GameState.player.level, GameState.player.experience, GameState.player.gold, round_number]
+	status_label.text = "NÍVEL %d  •  %d XP  •  %d OURO  •  RODADA %d  •  %s" % [GameState.player.level, GameState.player.experience, GameState.player.gold, round_number, arena_band_title]
 	distance_label.text = "DISTÂNCIA: %d" % distance
 	if crowd != null and crowd_bar != null:
 		crowd_bar.value = float(crowd.value())
@@ -825,6 +852,39 @@ func _load_sprite(folder: String, file_name: String) -> Texture2D:
 		if ResourceLoader.exists(path):
 			return load(path)
 	return null
+
+## Muralha decorativa no palco (reaproveita assets de arena existentes).
+func _add_stage_wall(folder: String, file_name: String, on_left: bool) -> void:
+	var texture := _load_sprite(folder, file_name)
+	if texture == null:
+		return
+	var rect := TextureRect.new()
+	rect.texture = texture
+	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rect.modulate = Color(1, 1, 1, 0.5)
+	rect.custom_minimum_size = Vector2(80, 0)
+	rect.set_anchors_preset(Control.PRESET_LEFT_WIDE if on_left else Control.PRESET_RIGHT_WIDE)
+	rect.offset_left = 0.0
+	rect.offset_right = 80.0 if on_left else 0.0
+	if not on_left:
+		rect.offset_left = -80.0
+		rect.offset_right = 0.0
+	_stage.add_child(rect)
+
+## Cenário por faixa de rank (ideia 9): o fundo do palco é variado (textura + tom)
+## conforme a faixa, sem arte nova. A faixa também define ouro/risco (GameState).
+func _apply_arena_band() -> void:
+	var band := GameState.arena_band()
+	arena_band_id = str(band.get("id", "areia"))
+	arena_band_title = str(band.get("title", "Arenas de Areia"))
+	if _stage_bg == null:
+		return
+	var texture := _load_sprite("arena", str(band.get("texture", "arena_background")))
+	if texture != null:
+		_stage_bg.texture = texture
+	_stage_bg.self_modulate = Color(str(band.get("tint", "ffffff")))
 
 func _load_pose_set(folder: String) -> Dictionary:
 	var base := "enemy" if folder == "enemies" else folder

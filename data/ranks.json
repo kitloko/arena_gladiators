@@ -1,0 +1,24 @@
+{
+	"comment": "Rank/KD (item I) e faixas de arena (ideia 9). FONTE ÚNICA das faixas, dos requisitos de acesso e dos modificadores de arena. Fora da UI — a interface só lê daqui via RankSystem.",
+	"tiers": [
+		{"id": "areia", "title": "Areia", "min": 0},
+		{"id": "pedra", "title": "Pedra", "min": 200},
+		{"id": "ferro", "title": "Ferro", "min": 500},
+		{"id": "aco", "title": "Aço", "min": 900},
+		{"id": "prata", "title": "Prata", "min": 1500},
+		{"id": "ouro", "title": "Ouro", "min": 2300},
+		{"id": "campeao", "title": "Campeão", "min": 3500},
+		{"id": "lenda", "title": "Lenda", "min": 5000}
+	],
+	"access": [
+		{"id": "free_arena", "min": 0},
+		{"id": "t1", "min": 200},
+		{"id": "t2", "min": 900},
+		{"id": "t3", "min": 2300}
+	],
+	"arena_bands": [
+		{"id": "areia", "title": "Arenas de Areia", "min": 0, "gold_multiplier": 1.0, "enemy_level_bonus": 0, "tint": "f0d9a8", "texture": "arena_background"},
+		{"id": "ferro", "title": "Arenas de Ferro", "min": 500, "gold_multiplier": 1.2, "enemy_level_bonus": 1, "tint": "b9c6d1", "texture": "arena_ground"},
+		{"id": "prata", "title": "Arenas de Prata", "min": 1500, "gold_multiplier": 1.45, "enemy_level_bonus": 2, "tint": "e6eef5", "texture": "arena_ground"}
+	]
+}

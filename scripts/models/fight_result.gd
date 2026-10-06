@@ -28,6 +28,16 @@ var crowd_multiplier: float = 1.0
 var quick_fight: bool = false
 ## Itens ganhos na luta (prêmio de rodada de torneio e/ou item único do campeão).
 var loot: Array[Dictionary] = []
+## RANK/KD (item I): variação de rank desta luta, preenchida pela arena.
+var rank_delta: int = 0
+var rank_points: int = 0
+var rank_title: String = ""
+var rank_promoted: bool = false
+var rank_demoted: bool = false
+var rank_change_known: bool = false
+## Faixa de arena usada nesta luta (ideia 9): id + título.
+var arena_band_id: String = ""
+var arena_band_title: String = ""
 
 func _init(p_victory: bool = false, p_rounds: int = 1) -> void:
 	victory = p_victory

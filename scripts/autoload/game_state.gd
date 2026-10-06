@@ -6,6 +6,12 @@ const CombatResolverScript := preload("res://scripts/systems/combat_resolver.gd"
 const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
 const ItemGeneratorScript := preload("res://scripts/systems/item_generator.gd")
 const SaveSystemScript := preload("res://scripts/systems/save_system.gd")
+const RankSystemScript := preload("res://scripts/systems/rank_system.gd")
+
+## Teto duro do multiplicador do público na entrada de on_victory. O teto REAL
+## depende do rank (CrowdSystem.reward_multiplier), que passa de ×2,0 nas faixas
+## altas — este valor só impede um multiplicador absurdo vindo de fora.
+const MULTIPLIER_HARD_CAP := 3.0
 
 signal campaign_started(player)
 signal player_changed(player)
@@ -85,9 +91,13 @@ func build_current_foe():
 		return CombatResolverScript.enemy_for_level(enemy_level_for_current_stage(), template)
 	# Arena Livre: inimigo procedural com nível/atributos/tier/tipo aleatórios
 	# e um conjunto de equipamento (itens de data/items.json afetam o status).
+	# A FAIXA DE ARENA (ideia 9) eleva o nível do inimigo nas faixas maiores:
+	# quanto maior o rank, mais ouro E mais risco.
 	if player == null:
 		return null
-	return GladiatorDataScript.new(CombatResolverScript.generate_enemy(player.level, ContentRepositoryScript.load_items()))
+	var band := arena_band()
+	var level_bonus := int(band.get("enemy_level_bonus", 0))
+	return GladiatorDataScript.new(CombatResolverScript.generate_enemy(player.level + level_bonus, ContentRepositoryScript.load_items()))
 
 # --- Torneio -----------------------------------------------------------------
 
@@ -110,8 +120,12 @@ func tournament_prize() -> int:
 	return tourney_prize
 
 ## Inicia um torneio com o personagem atual (sem loja/descanso; não salva).
+## BLOQUEIA por RANK (item I): Torneio Menor exige Pedra, Maior exige Aço,
+## Grande exige Ouro. O motivo do bloqueio é mostrado pela cidade.
 func start_tournament(tier_id: String) -> bool:
 	if player == null or _tier_by_id(tier_id).is_empty():
+		return false
+	if not tournament_unlocked(tier_id):
 		return false
 	mode = "tournament"
 	tourney_tier_id = tier_id
@@ -211,6 +225,59 @@ func continue_campaign() -> bool:
 func _export_save() -> Dictionary:
 	return {"version": 2, "stage_index": stage_index, "lap": lap, "win_streak": win_streak, "player": player.to_save_data()}
 
+# --- Rank / KD / faixas de arena (item I e ideia 9) -------------------------
+
+## Rating do adversário atual (usa o inimigo materializado; se não houver,
+## deriva do nível/tier da arena corrente — o torneio monta o inimigo no build).
+func opponent_rating() -> int:
+	if player == null:
+		return 0
+	if current_enemy != null:
+		return RankSystemScript.opponent_rating_for(current_enemy)
+	var tier := 1
+	if mode == "tournament":
+		tier = _tier_index(tourney_tier_id) + 1
+	return RankSystemScript.opponent_rating(enemy_level_for_current_stage(), tier, false)
+
+## Aplica o resultado de UMA luta ao rank/KD do jogador e devolve o antes/depois
+## (delta, títulos, promoção/rebaixa). Só mexe em pontos/wins/losses.
+func apply_rank_result(victory: bool) -> Dictionary:
+	if player == null:
+		return {}
+	return RankSystemScript.apply_to(player, opponent_rating(), victory)
+
+## Faixa de arena da Arena Livre conforme o rank (ideia 9).
+func arena_band() -> Dictionary:
+	var points := 0
+	if player != null:
+		points = int(player.rank_points)
+	return RankSystemScript.arena_band_for(points)
+
+func arena_band_title() -> String:
+	return str(arena_band().get("title", "Arenas de Areia"))
+
+## Requisito de rank de um torneio (0 = livre).
+func tournament_requirement(tier_id: String) -> int:
+	return RankSystemScript.requirement_for(tier_id)
+
+func tournament_unlocked(tier_id: String) -> bool:
+	if player == null:
+		return false
+	return RankSystemScript.meets(int(player.rank_points), tier_id)
+
+## Motivo visível do bloqueio ("" quando liberado).
+func tournament_lock_reason(tier_id: String) -> String:
+	var points := 0
+	if player != null:
+		points = int(player.rank_points)
+	return RankSystemScript.lock_reason(points, tier_id)
+
+func player_rank_title() -> String:
+	var points := 0
+	if player != null:
+		points = int(player.rank_points)
+	return RankSystemScript.title_for(points)
+
 # --- Vitória / derrota -----------------------------------------------------
 
 ## Aplica a recompensa e avança o modo atual. Retorna o que a tela de resultado
@@ -220,9 +287,22 @@ func _export_save() -> Dictionary:
 func on_victory(gold_reward: int, xp_reward: int, crowd_multiplier: float = 1.0) -> Dictionary:
 	if player == null:
 		return {"gold": 0, "prize": 0, "experience": 0, "leveled_up": false, "campaign_cleared": false, "tournament": false}
-	var crowd := clampf(crowd_multiplier, 1.0, 2.0)
+	# RANK/KD (item I): vencer move o rank conforme a força do adversário.
+	var rank_info: Dictionary = apply_rank_result(true)
+	# O teto do público sobe com o rank (arena mais lotada): o clamp NÃO pode
+	# cortar em ×2,0, senão o bônus de rank não chega à recompensa.
+	var crowd := clampf(crowd_multiplier, 1.0, MULTIPLIER_HARD_CAP)
+	var result: Dictionary
 	if mode == "tournament":
-		return _on_tournament_victory(gold_reward, xp_reward, crowd)
+		result = _on_tournament_victory(gold_reward, xp_reward, crowd)
+	else:
+		result = _on_free_victory(gold_reward, xp_reward, crowd)
+	result["rank"] = rank_info
+	return result
+
+## Vitória na Arena Livre. A FAIXA DE ARENA (ideia 9) multiplica o ouro: faixas
+## maiores pagam mais.
+func _on_free_victory(gold_reward: int, xp_reward: int, crowd: float) -> Dictionary:
 	# Arena Livre: recompensa escala pelo tier do inimigo E pela sequência de
 	# vitórias (win streak). Perder zera a sequência — por isso vale descansar
 	# para continuar vencendo e não perder o bônus acumulado.
@@ -231,9 +311,10 @@ func on_victory(gold_reward: int, xp_reward: int, crowd_multiplier: float = 1.0)
 	if current_enemy != null:
 		mult = float(current_enemy.reward_multiplier)
 	var streak_mult := EconomySystemScript.streak_reward_multiplier(win_streak)
+	var band_mult := float(arena_band().get("gold_multiplier", 1.0))
 	# Ouro: escala com o tier do inimigo E com a sequência de vitórias E com a
-	# felicidade do público (item H).
-	var gold_gain := int(round(float(maxi(0, gold_reward)) * mult * streak_mult * crowd))
+	# felicidade do público (item H) E com a faixa de arena (ideia 9).
+	var gold_gain := int(round(float(maxi(0, gold_reward)) * mult * streak_mult * crowd * band_mult))
 	# XP: escala SÓ com o tier (bônus pequeno). A sequência multiplicava o XP também,
 	# e com 5 vitórias seguidas no nível 1 a luta rendia mais XP que o nível exigia —
 	# o personagem subia de nível a cada luta.
@@ -245,7 +326,7 @@ func on_victory(gold_reward: int, xp_reward: int, crowd_multiplier: float = 1.0)
 	player.gold += gold_gain
 	var leveled_up: bool = player.grant_experience(xp_gain)
 	player_changed.emit(player)
-	return {"gold": gold_gain, "prize": 0, "experience": xp_gain, "leveled_up": leveled_up, "campaign_cleared": false, "tournament": false, "streak": win_streak, "streak_bonus_pct": EconomySystemScript.streak_bonus_percent(win_streak)}
+	return {"gold": gold_gain, "prize": 0, "experience": xp_gain, "leveled_up": leveled_up, "campaign_cleared": false, "tournament": false, "streak": win_streak, "streak_bonus_pct": EconomySystemScript.streak_bonus_percent(win_streak), "band": str(arena_band().get("id", "areia"))}
 
 func _on_tournament_victory(gold_reward: int, xp_reward: int, crowd_multiplier: float = 1.0) -> Dictionary:
 	var tier := tournament_tier()
@@ -334,8 +415,17 @@ func sell_item(item_id: String) -> Dictionary:
 ## Derrota: Arena Livre perde 25% do ouro e acorda curado (segue o jogo);
 ## Torneio encerra a inscrição e devolve apenas metade do prêmio acumulado.
 func on_defeat() -> Dictionary:
+	# RANK/KD (item I): perder SEMPRE tira pontos (perder para rank menor dói mais).
+	var rank_info: Dictionary = apply_rank_result(false)
+	var result: Dictionary
 	if mode == "tournament":
-		return _on_tournament_defeat()
+		result = _on_tournament_defeat()
+	else:
+		result = _on_free_defeat()
+	result["rank"] = rank_info
+	return result
+
+func _on_free_defeat() -> Dictionary:
 	# Perder na Arena Livre zera a sequência de vitórias (adeus, bônus).
 	win_streak = 0
 	var boss := is_boss_stage()

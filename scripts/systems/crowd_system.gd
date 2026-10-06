@@ -30,6 +30,15 @@ const START_CAP := 70
 ## Luta contra chefe começa empolgada: PISO de 60.
 const BOSS_FLOOR := 60
 
+## ARENA MAIS LOTADA (item I, etapa 3): quanto maior o RANK, mais gente no
+## estádio. O rank eleva o INÍCIO da barra (+3 por faixa acima de Areia) e o TETO
+## do início (+4 por faixa) e o TETO do multiplicador de ouro (+0,05 por faixa).
+## A conta fica AQUI (fonte única) — a UI só lê initial_happiness()/reward_multiplier().
+const RANK_START_PER_TIER := 3
+const RANK_START_CAP_PER_TIER := 4
+const RANK_MULT_PER_TIER := 0.05
+const RankSystemScript := preload("res://scripts/systems/rank_system.gd")
+
 ## Luta definida em até 3 ações do jogador não multiplica a recompensa.
 const QUICK_FIGHT_ACTIONS := 3
 const MULTIPLIER_MAX := 2.0
@@ -62,6 +71,8 @@ var happiness: int = 0
 ## Ações do jogador nesta luta (usado pelo corte de luta rápida).
 var actions: int = 0
 var boss: bool = false
+## Pontos de rank do jogador nesta luta (arena mais lotada quanto maior o rank).
+var rank_points: int = 0
 ## O jogador se exibiu: o inimigo ataca com bônus e a esquiva não vale.
 var exposed: bool = false
 
@@ -71,21 +82,24 @@ var _retreat_streak: int = 0
 var _cold_streak: int = 0
 var _events: Array[Dictionary] = []
 
-func _init(player = null, enemy = null, is_boss: bool = false) -> void:
+func _init(player = null, enemy = null, is_boss: bool = false, p_rank_points: int = 0) -> void:
 	boss = is_boss
-	happiness = initial_happiness(player, enemy, is_boss)
+	rank_points = p_rank_points
+	happiness = initial_happiness(player, enemy, is_boss, p_rank_points)
 
 ## Valor inicial: clamp(30 + (CHA jogador + CHA inimigo) × 1,5, 0, 70); em luta
-## contra chefe o início tem PISO de 60. O gancho do rank (etapa 3) elevará este
-## início mais tarde — hoje a função é a fonte única.
-static func initial_happiness(player, enemy, is_boss: bool = false) -> int:
+## contra chefe o início tem PISO de 60. O RANK eleva o início e o teto (arena
+## mais lotada, item I): +3 de início e +4 de teto por faixa acima de Areia.
+static func initial_happiness(player, enemy, is_boss: bool = false, rank_points: int = 0) -> int:
 	var cha := 0
 	if player != null:
 		cha += int(player.charisma)
 	if enemy != null:
 		cha += int(enemy.charisma)
-	var value := int(round(START_BASE + float(cha) * START_CHA_WEIGHT))
-	value = clampi(value, MIN_VALUE, START_CAP)
+	var rank_tier := RankSystemScript.tier_index_for(rank_points)
+	var value := int(round(START_BASE + float(cha) * START_CHA_WEIGHT)) + rank_tier * RANK_START_PER_TIER
+	var cap := START_CAP + rank_tier * RANK_START_CAP_PER_TIER
+	value = clampi(value, MIN_VALUE, cap)
 	if is_boss:
 		value = maxi(value, BOSS_FLOOR)
 	return clampi(value, MIN_VALUE, MAX_VALUE)
@@ -101,11 +115,21 @@ func is_quick_fight() -> bool:
 	return actions <= QUICK_FIGHT_ACTIONS
 
 ## Multiplicador de ouro da vitória: ×1,0 + felicidade/100, limitado a ×2,0.
-## Luta definida em até 3 ações não multiplica (retorna 1,0).
-func reward_multiplier() -> float:
+## Luta definida em até 3 ações não multiplica (retorna 1,0). O RANK eleva o TETO
+## (+0,05 por faixa acima de Areia): com rank alto a mesma felicidade paga mais.
+func reward_multiplier(p_rank_points: int = 0) -> float:
 	if is_quick_fight():
 		return 1.0
-	return clampf(1.0 + float(happiness) / 100.0, 1.0, MULTIPLIER_MAX)
+	var rank_tier := rank_points_or(p_rank_points)
+	var bonus := RANK_MULT_PER_TIER * float(rank_tier)
+	var cap := MULTIPLIER_MAX + bonus
+	return clampf(1.0 + float(happiness) / 100.0 + bonus, 1.0, cap)
+
+## Usa o rank passado por argumento; se 0, cai para o rank guardado no sistema.
+func rank_points_or(p_rank_points: int) -> int:
+	if p_rank_points > 0:
+		return RankSystemScript.tier_index_for(p_rank_points)
+	return RankSystemScript.tier_index_for(rank_points)
 
 func clear_exposed() -> void:
 	exposed = false

@@ -13,6 +13,7 @@ signal closed
 const ContentRepositoryScript := preload("res://scripts/repositories/content_repository.gd")
 const ItemGeneratorScript := preload("res://scripts/systems/item_generator.gd")
 const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
+const RankSystemScript := preload("res://scripts/systems/rank_system.gd")
 const ItemDropPanelScript := preload("res://scripts/ui/item_drop_panel.gd")
 const SLOT_ORDER := ["weapon", "armor", "helmet", "gloves", "boots", "belt"]
 const SLOT_LABELS := {
@@ -68,8 +69,8 @@ func _build_interface() -> void:
 	root.add_child(_make_label("PERSONAGEM", 28, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
 	_attributes = RichTextLabel.new()
 	_attributes.bbcode_enabled = true
-	# 4 linhas: nome/nível/ouro, vida+armadura, os 7 atributos, resumo de equipamento.
-	_attributes.custom_minimum_size = Vector2(0, 96)
+	# 5 linhas: nome/nível/ouro, vida+armadura, RANK+KD, os 7 atributos, resumo.
+	_attributes.custom_minimum_size = Vector2(0, 118)
 	_attributes.add_theme_font_size_override("normal_font_size", 15)
 	_attributes.add_theme_color_override("default_color", MUTED)
 	_attributes.add_theme_stylebox_override("normal", _panel_style(PANEL_DARK, 10, 12))
@@ -164,8 +165,17 @@ func _refresh() -> void:
 	var pending := ""
 	if p.pending_points > 0:
 		pending = "   •   [color=#f5c451]%d ponto(s) de atributo esperando[/color]" % p.pending_points
-	_attributes.text = "[color=#f5c451]%s[/color]  •  Nível %d  •  %d ouro\n[color=#79cf7b]VIDA %d/%d[/color]   [color=#70b9e8]ARMADURA %d/%d[/color]\n[color=#bbaec1]FOR %d   ATT %d   DEF %d   AGI %d   VIT %d   CAR %d   SOR %d[/color]\n[color=#bbaec1]Equipado: %d de 6 slots   •   itens na bolsa: %d[/color]%s" % [
+	# RANK e KD (item I): separado do nível; o KD é o cartel de vitórias/derrotas.
+	var next_tier := RankSystemScript.next_tier(p.rank_points)
+	var rank_progress := "faixa máxima"
+	if not next_tier.is_empty():
+		rank_progress = "faltam %d pts para %s" % [RankSystemScript.points_to_next(p.rank_points), str(next_tier.get("title", "?"))]
+	var rank_line := "[color=#f5c451]RANK %s (%d pts — %s)[/color]   [color=#cdbfd5]KD %d V / %d D[/color]" % [
+		RankSystemScript.title_for(p.rank_points), p.rank_points, rank_progress, p.wins, p.losses,
+	]
+	_attributes.text = "[color=#f5c451]%s[/color]  •  Nível %d  •  %d ouro\n[color=#79cf7b]VIDA %d/%d[/color]   [color=#70b9e8]ARMADURA %d/%d[/color]\n%s\n[color=#bbaec1]FOR %d   ATT %d   DEF %d   AGI %d   VIT %d   CAR %d   SOR %d[/color]\n[color=#bbaec1]Equipado: %d de 6 slots   •   itens na bolsa: %d[/color]%s" % [
 		p.display_name, p.level, p.gold, p.health, p.max_health, p.armour, p.max_armour,
+		rank_line,
 		p.strength, p.attack, p.defence, p.agility, p.vitality, p.charisma, p.luck,
 		_equipped_count(), p.bag_items().size(), pending,
 	]
