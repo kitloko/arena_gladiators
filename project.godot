@@ -1,0 +1,26 @@
+; Engine configuration file.
+; This project intentionally builds its interface through GDScript.
+config_version=5
+
+[application]
+config/name="Arena dos Gladiadores"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.3")
+
+[autoload]
+DebugLog="*res://scripts/autoload/debug_log.gd"
+GameState="*res://scripts/autoload/game_state.gd"
+
+[display]
+
+[display/window]
+size/viewport_width=1100
+size/viewport_height=700
+size/window_width_override=1100
+size/window_height_override=700
+stretch/mode="canvas_items"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/default_filters/use_nearest_mipmap_filter=false

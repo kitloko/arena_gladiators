@@ -1,0 +1,50 @@
+[
+  {
+    "id": "warrior",
+    "display_name": "Gladiador",
+    "description": "Equilibrado em ataque e defesa. Um começo confiável para qualquer luta.",
+    "base_health": 62,
+    "base_attack": 12,
+    "base_defense": 5,
+    "base_luck": 8,
+    "skill": {
+      "id": "charge",
+      "display_name": "Investida",
+      "description": "Avanço poderoso que acerta com boa precisão.",
+      "multiplier": 1.5,
+      "accuracy": 0.85
+    }
+  },
+  {
+    "id": "marauder",
+    "display_name": "Brutamontes",
+    "description": "Troca defesa por força bruta. Cada golpe pode decidir a luta.",
+    "base_health": 56,
+    "base_attack": 16,
+    "base_defense": 3,
+    "base_luck": 5,
+    "skill": {
+      "id": "shatter",
+      "display_name": "Golpe Devastador",
+      "description": "Dano enorme, porém impreciso. Errar deixa você exposto.",
+      "multiplier": 2.1,
+      "accuracy": 0.5
+    }
+  },
+  {
+    "id": "duelist",
+    "display_name": "Duelista",
+    "description": "Rápido e sortudo, acerta golpes críticos com frequência.",
+    "base_health": 50,
+    "base_attack": 11,
+    "base_defense": 4,
+    "base_luck": 13,
+    "skill": {
+      "id": "thrust",
+      "display_name": "Estocada",
+      "description": "Ataque veloz e preciso que favorece os acertos críticos.",
+      "multiplier": 1.35,
+      "accuracy": 0.95
+    }
+  }
+]

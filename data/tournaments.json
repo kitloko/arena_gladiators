@@ -1,0 +1,23 @@
+[
+  {
+    "id": "t1",
+    "name": "Torneio Menor",
+    "description": "Para quem ainda se aquece. Recompensas modestas.",
+    "rounds": ["livia", "maurus", "imperator", "grande_gladiador"],
+    "reward_multiplier": 1.0
+  },
+  {
+    "id": "t2",
+    "name": "Torneio Maior",
+    "description": "Oponentes experientes. O ouro chama.",
+    "rounds": ["vettius", "maurus", "imperator", "grande_gladiador"],
+    "reward_multiplier": 1.6
+  },
+  {
+    "id": "t3",
+    "name": "Grande Torneio",
+    "description": "Apenas para campeões. Risco e glória máximos.",
+    "rounds": ["vettius", "imperator", "imperator", "grande_gladiador"],
+    "reward_multiplier": 2.4
+  }
+]

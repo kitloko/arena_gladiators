@@ -1,0 +1,7 @@
+[
+  {"id": "arena1", "name": "Arena dos Novatos", "enemy_id": "livia", "level_offset": 0, "boss": false},
+  {"id": "arena2", "name": "Fosso dos Feridos", "enemy_id": "brutus", "level_offset": 1, "boss": false},
+  {"id": "arena3", "name": "Jaula do Leão", "enemy_id": "maurus", "level_offset": 2, "boss": false},
+  {"id": "arena4", "name": "Coliseu Menor", "enemy_id": "vettius", "level_offset": 3, "boss": false},
+  {"id": "arena5", "name": "Trono do Imperador", "enemy_id": "imperator", "level_offset": 4, "boss": true}
+]

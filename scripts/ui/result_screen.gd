@@ -1,0 +1,274 @@
+class_name ResultScreen
+extends Control
+
+## Tela de resultado: mostra um FightResult e deixa o jogador decidir o
+## próximo passo. Se houver níveis pendentes, primeiro o jogador escolhe o
+## treino (decisão de progressão); depois exibe as ações de campanha.
+## Apenas mostra informação e encaminha decisões; não calcula regras.
+
+signal action_requested(action: String)
+
+const EconomySystemScript := preload("res://scripts/systems/economy_system.gd")
+
+const BACKGROUND := Color("14111c")
+const PANEL := Color("272033")
+const PANEL_DARK := Color("1d1726")
+const GOLD := Color("f5c451")
+const RED := Color("d95858")
+const GREEN := Color("79cf7b")
+const INK := Color("f7edf4")
+const MUTED := Color("cdbfd5")
+const DIM := Color("bbaec1")
+const ABILITY := Color("e06bb5")
+
+var _result
+var _title: Label
+var _body: VBoxContainer
+var _rest_dialog: Control = null
+
+func _ready() -> void:
+	_build_interface()
+
+func set_result(result) -> void:
+	_result = result
+	_render()
+
+func _build_interface() -> void:
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var backdrop := ColorRect.new()
+	backdrop.color = BACKGROUND
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(backdrop)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(center)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _panel_style(PANEL, 16, 40))
+	center.add_child(panel)
+	var root := VBoxContainer.new()
+	root.custom_minimum_size = Vector2(620, 0)
+	root.add_theme_constant_override("separation", 16)
+	panel.add_child(root)
+	_title = _make_label("", 32, INK, HORIZONTAL_ALIGNMENT_CENTER)
+	root.add_child(_title)
+	_body = VBoxContainer.new()
+	_body.add_theme_constant_override("separation", 14)
+	root.add_child(_body)
+
+func _render() -> void:
+	for child in _body.get_children():
+		child.free()
+	if _result == null:
+		_title.text = "SEM RESULTADO"
+		return
+	var pending := 0
+	if GameState.player != null:
+		pending = GameState.player.pending_level_ups
+	if pending > 0:
+		_render_level_up(pending)
+	else:
+		_render_summary()
+
+func _render_level_up(pending: int) -> void:
+	_title.text = "NÍVEL %d!" % GameState.player.level
+	_title.add_theme_color_override("font_color", GOLD)
+	_body.add_child(_make_label("Escolha como %s treina (%d nível(nis) pendente(s))." % [GameState.player.display_name, pending], 15, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+	for option: Dictionary in EconomySystemScript.level_up_options():
+		var button := Button.new()
+		button.text = "%s\n%s" % [str(option.get("label", "")), str(option.get("description", ""))]
+		button.custom_minimum_size = Vector2(0, 62)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.add_theme_font_size_override("font_size", 16)
+		button.pressed.connect(GameState.choose_level_up.bind(str(option.get("id", ""))))
+		button.pressed.connect(_on_level_up_chosen)
+		_style_button(button, ABILITY)
+		_body.add_child(button)
+
+func _on_level_up_chosen() -> void:
+	_render.call_deferred()
+
+func _render_summary() -> void:
+	var victory: bool = bool(_result.victory)
+	_title.text = "VITÓRIA" if victory else "DERROTA"
+	_title.add_theme_color_override("font_color", GREEN if victory else RED)
+	var opponent := str(_result.opponent_name)
+	if opponent == "":
+		opponent = "o oponente"
+	var lines: Array[String] = []
+	var tournament: bool = bool(_result.tournament)
+	if victory:
+		var target_line := "[color=#cdbfd5]%s venceu em %d rodadas.[/color]" % [opponent, int(_result.rounds)]
+		if bool(_result.boss):
+			target_line = "[color=#f5c451]O CHEFE %s caiu![/color]" % opponent.to_upper()
+		lines.append(target_line)
+		if tournament:
+			lines.append("[color=#f5c451]Prêmio desta luta: +%d de ouro[/color]  •  [color=#cdbfd5]+%d XP[/color]" % [int(_result.prize), int(_result.experience)])
+			lines.append("[color=#bbaec1]Prêmio acumulado no torneio: %d.[/color]" % GameState.tournament_prize())
+			lines.append("[color=#79cf7b]Você acorda curado para o próximo combate.[/color]")
+			if bool(_result.campaign_cleared):
+				lines.append("[color=#79cf7b]CAMPEÃO! O Gládio do Grande Gladiador é seu.[/color]")
+		else:
+			lines.append("[color=#79cf7b]+%d ouro[/color]  •  [color=#cdbfd5]+%d XP[/color]" % [int(_result.gold), int(_result.experience)])
+			lines.append("[color=#d9a45b]SEQUÊNCIA: %d vitória(s) seguidas — +%d%% na recompensa[/color]" % [GameState.win_streak, EconomySystemScript.streak_bonus_percent(GameState.win_streak)])
+			if GameState.player != null:
+				lines.append("[color=#70b9e8]VIDA %d/%d  •  %d ouro[/color]" % [GameState.player.health, GameState.player.max_health, GameState.player.gold])
+			lines.append("[color=#bbaec1]Perder zera a sequência. Descansar preserva o bônus.[/color]")
+	else:
+		lines.append("[color=#cdbfd5]%s venceu em %d rodadas.[/color]" % [opponent, int(_result.rounds)])
+		if tournament:
+			lines.append("[color=#d95858]Você foi eliminado do torneio. Perdeu %d do prêmio acumulado.[/color]" % int(_result.penalty))
+			if int(_result.prize) > 0:
+				lines.append("[color=#bbaec1]Recuperou %d de ouro do prêmio.[/color]" % int(_result.prize))
+		elif bool(_result.campaign_lost):
+			lines.append("[color=#d95858]A campanha termina aqui.[/color]")
+		else:
+			lines.append("[color=#bbaec1]Você perdeu %d de ouro e acordou curado para tentar de novo.[/color]" % int(_result.penalty))
+	lines.append("")
+	lines.append("[color=#cdbfd5]Golpes certeiros: %d    Críticos: %d[/color]" % [int(_result.hits), int(_result.criticals)])
+	lines.append("[color=#cdbfd5]Dano causado: %d    Dano sofrido: %d[/color]" % [int(_result.damage_dealt), int(_result.damage_taken)])
+	var summary := RichTextLabel.new()
+	summary.bbcode_enabled = true
+	summary.custom_minimum_size = Vector2(0, 200)
+	summary.add_theme_font_size_override("normal_font_size", 17)
+	summary.add_theme_color_override("default_color", MUTED)
+	summary.add_theme_stylebox_override("normal", _panel_style(PANEL_DARK, 10, 20))
+	summary.text = "\n".join(lines)
+	_body.add_child(summary)
+	if tournament and victory and bool(_result.campaign_cleared):
+		_add_action_button("CONCLUIR TORNEIO", GOLD, "end_victory")
+	elif tournament and victory:
+		_add_action_button("PRÓXIMO COMBATE", GREEN, "next")
+	elif tournament:
+		_add_action_button("ACEITAR A DERROTA", RED, "end_defeat")
+	elif victory:
+		_add_action_button("IR À LOJA", GOLD, "shop")
+		_add_rest_button()
+		_add_action_button("SEGUIR", GREEN, "next")
+		_add_action_button("ACAMPAMENTO", Color("8f83b3"), "camp")
+	else:
+		_add_action_button("TENTAR NOVAMENTE", GREEN, "retry")
+		_add_action_button("ACAMPAMENTO", Color("8f83b3"), "camp")
+
+func _add_action_button(text_value: String, color: Color, action: String) -> void:
+	var button := Button.new()
+	button.text = text_value
+	button.custom_minimum_size = Vector2(0, 52)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", 16)
+	button.pressed.connect(action_requested.emit.bind(action))
+	_style_button(button, color)
+	_body.add_child(button)
+
+## Botão "DESCANSAR (X ouro)": só descansa (não avança). O avanço é feito pelo
+## botão SEGUIR já existente.
+func _add_rest_button() -> void:
+	if GameState.player == null:
+		return
+	var missing: int = int(GameState.player.max_health) - int(GameState.player.health)
+	if missing <= 0:
+		return
+	var button := Button.new()
+	button.text = "DESCANSAR (%d ouro)" % GameState.full_rest_cost()
+	button.custom_minimum_size = Vector2(0, 52)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", 16)
+	button.pressed.connect(_open_rest_dialog)
+	_style_button(button, Color("70b9e8"))
+	_body.add_child(button)
+
+func _open_rest_dialog() -> void:
+	if GameState.player == null or _rest_dialog != null:
+		return
+	var p = GameState.player
+	var missing := maxi(0, p.max_health - p.health)
+	if missing <= 0:
+		return
+	var full_cost: int = GameState.full_rest_cost()
+	var overlay := Control.new()
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(overlay)
+	_rest_dialog = overlay
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.62)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.gui_input.connect(func(event: InputEvent) -> void:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			_close_rest_dialog())
+	overlay.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _panel_style(PANEL_DARK, 14, 30))
+	center.add_child(panel)
+	var root := VBoxContainer.new()
+	root.custom_minimum_size = Vector2(440, 0)
+	root.add_theme_constant_override("separation", 10)
+	panel.add_child(root)
+	root.add_child(_make_label("DESCANSAR", 26, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	root.add_child(_make_label("VIDA  %d / %d   (faltam %d)" % [p.health, p.max_health, missing], 16, INK, HORIZONTAL_ALIGNMENT_CENTER))
+	root.add_child(_make_label("Descanso completo custa %d ouro. Você tem %d." % [full_cost, p.gold], 15, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+	if p.gold < full_cost:
+		root.add_child(_make_label("Sem ouro suficiente: recupera apenas o que o ouro permitir.", 13, Color("d9a45b"), HORIZONTAL_ALIGNMENT_CENTER))
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 10)
+	root.add_child(row)
+	var rest_button := Button.new()
+	rest_button.text = "DESCANSAR (%d ouro)" % full_cost
+	rest_button.custom_minimum_size = Vector2(190, 46)
+	rest_button.add_theme_font_size_override("font_size", 15)
+	rest_button.pressed.connect(_confirm_rest)
+	_style_button(rest_button, GREEN)
+	row.add_child(rest_button)
+	var cancel := Button.new()
+	cancel.text = "CANCELAR"
+	cancel.custom_minimum_size = Vector2(120, 46)
+	cancel.add_theme_font_size_override("font_size", 15)
+	cancel.pressed.connect(_close_rest_dialog)
+	_style_button(cancel, Color("8f83b3"))
+	row.add_child(cancel)
+
+func _confirm_rest() -> void:
+	if GameState.player == null:
+		return
+	GameState.rest()
+	_close_rest_dialog()
+	_render.call_deferred()
+
+func _close_rest_dialog() -> void:
+	if _rest_dialog != null:
+		_rest_dialog.queue_free()
+		_rest_dialog = null
+
+func _make_label(text_value: String, size: int, color: Color, alignment := HORIZONTAL_ALIGNMENT_LEFT) -> Label:
+	var label := Label.new()
+	label.text = text_value
+	label.add_theme_font_size_override("font_size", size)
+	label.add_theme_color_override("font_color", color)
+	label.horizontal_alignment = alignment
+	return label
+
+func _style_button(button: Button, color: Color) -> void:
+	button.add_theme_color_override("font_color", Color("1a1420"))
+	button.add_theme_color_override("font_hover_color", Color("1a1420"))
+	button.add_theme_color_override("font_pressed_color", Color("1a1420"))
+	button.add_theme_color_override("font_disabled_color", Color("8a8091"))
+	button.add_theme_stylebox_override("normal", _panel_style(color, 8, 14))
+	button.add_theme_stylebox_override("hover", _panel_style(color.lightened(0.12), 8, 14))
+	button.add_theme_stylebox_override("pressed", _panel_style(color.darkened(0.12), 8, 14))
+	button.add_theme_stylebox_override("disabled", _panel_style(Color("4a4154"), 8, 14))
+
+func _panel_style(color: Color, radius: int, content_margin: int) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = color
+	style.corner_radius_top_left = radius
+	style.corner_radius_top_right = radius
+	style.corner_radius_bottom_left = radius
+	style.corner_radius_bottom_right = radius
+	style.content_margin_left = content_margin
+	style.content_margin_right = content_margin
+	style.content_margin_top = content_margin
+	style.content_margin_bottom = content_margin
+	return style
