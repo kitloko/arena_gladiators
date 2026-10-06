@@ -20,6 +20,7 @@ const HaggleSystemScript := preload("res://scripts/systems/haggle_system.gd")
 const BettingSystemScript := preload("res://scripts/systems/betting_system.gd")
 const PotionSystemScript := preload("res://scripts/systems/potion_system.gd")
 const FighterVisualsScript := preload("res://scripts/systems/fighter_visuals.gd")
+const BossPoolScript := preload("res://scripts/systems/boss_pool.gd")
 const GameStateScript := preload("res://scripts/autoload/game_state.gd")
 
 var _failures: int = 0
@@ -109,6 +110,11 @@ func _initialize() -> void:
 	_test_unique_no_duplicate_until_all_owned()
 	_test_unique_effects_are_real()
 	_test_boss_grades_and_drop_grants()
+	# --- ETAPA 10: pool de bosses finais por tier + sorteio + grau -> drop ---
+	_test_boss_pool_shape_and_isolation()
+	_test_final_boss_draw_covers_pool_and_no_repeat()
+	_test_final_boss_grade_feeds_drop()
+	_test_build_current_foe_uses_drawn_boss()
 	if _failures == 0:
 		print("PASS: todos os testes de regras passaram.")
 		quit(0)
@@ -442,7 +448,14 @@ func _test_items_and_campaign_content() -> void:
 		slots[str(item.get("slot", ""))] = true
 	_check(slots.has("weapon") and slots.has("armor"), "itens cobrem arma e armadura")
 	var enemies := ContentRepositoryScript.load_enemies()
-	_check(enemies.size() == 6, "enemies.json tem 6 inimigos (inclui chefes)")
+	# ETAPA 10: o roster cresceu com os 18 bosses de pool. Garantimos que os 6
+	# lutadores BASE continuam presentes (nada foi apagado).
+	var base_ids := ["brutus", "livia", "maurus", "vettius", "imperator", "grande_gladiador"]
+	var missing := ""
+	for base_id: String in base_ids:
+		if ContentRepositoryScript.find_enemy(enemies, base_id).is_empty():
+			missing += " %s" % base_id
+	_check(enemies.size() >= 6 and missing == "", "enemies.json mantém os 6 lutadores base (total %d)%s" % [enemies.size(), missing])
 	var imperator := ContentRepositoryScript.find_enemy(enemies, "imperator")
 	var grande := ContentRepositoryScript.find_enemy(enemies, "grande_gladiador")
 	_check(not imperator.get("special", {}).is_empty() and not grande.get("special", {}).is_empty(), "chefes têm habilidade exclusiva")
@@ -1334,7 +1347,7 @@ func _test_presentation_taunt_draw() -> void:
 ## altura/peso), fraqueza declarada e falas de provocação válidas.
 func _test_enemy_identity_content() -> void:
 	var enemies := ContentRepositoryScript.load_enemies()
-	_check(enemies.size() == 6, "enemies.json continua com 6 inimigos")
+	_check(enemies.size() >= 6, "enemies.json mantém o roster (base + pools de boss: %d)" % enemies.size())
 	var ids := {}
 	for enemy: Dictionary in enemies:
 		var enemy_id := str(enemy.get("id", "?"))
@@ -1986,7 +1999,7 @@ func _test_boss_grades_and_drop_grants() -> void:
 	var template: Dictionary = ContentRepositoryScript.find_enemy(enemies, "grande_gladiador")
 	var foe = CombatResolverScript.enemy_for_level(5, template)
 	_check(int(foe.grade) == 5, "o grau do boss (5) chega ao inimigo gerado")
-	_check(BossDropTable.stars(5) == "⭐⭐⭐⭐⭐" and BossDropTable.stars(1).begins_with("⭐") and BossDropTable.stars(1).ends_with("☆"), "o grau vira 1 a 5 estrelas para exibir")
+	_check(BossDropTable.stars(5) == "★★★★★" and BossDropTable.stars(1).begins_with("★") and BossDropTable.stars(1).ends_with("☆"), "o grau vira 1 a 5 estrelas para exibir")
 	# O prêmio do boss: exatamente 1 item por vitória e nada de única repetida.
 	var player = _fighter({"id": "drop", "level": 6, "rank_points": 900, "base_vitality": 10, "base_strength": 12})
 	var gs = _tournament_game_state(player)
@@ -2005,6 +2018,154 @@ func _test_boss_grades_and_drop_grants() -> void:
 			uniques[id] = true
 	_check(empties == 0 and granted == 60, "cada vitória do boss entrega EXATAMENTE 1 item (vazios %d)" % empties)
 	_check(uniques.size() <= UniqueItems.tier_set("t2").size(), "nunca saem mais variações únicas que o conjunto do torneio (%d de %d)" % [uniques.size(), UniqueItems.tier_set("t2").size()])
+	gs.free()
+
+# ===========================================================================
+# ETAPA 10 — POOL DE BOSSES FINAIS por torneio + SORTEIO + grau -> drop (§5.3)
+# ===========================================================================
+
+## Cada torneio tem o SEU pool de 6 bosses válidos (18 no total), SEM repetir id
+## entre tiers e sem apagar os lutadores base.
+func _test_boss_pool_shape_and_isolation() -> void:
+	var tier_ids := ["t1", "t2", "t3"]
+	var all_ids := {}
+	var problems := ""
+	for tier_id: String in tier_ids:
+		var validation: Dictionary = BossPoolScript.validate_pool(tier_id)
+		if not bool(validation.get("ok", false)):
+			problems += " %s(missing=%s,not_boss=%s,bad_grade=%s)" % [tier_id, str(validation.get("missing", [])), str(validation.get("not_boss", [])), str(validation.get("bad_grade", []))]
+		var pool: Array = BossPoolScript.pool_for(tier_id)
+		if pool.size() != 6:
+			problems += " %s=size%d" % [tier_id, pool.size()]
+		for boss_id: String in pool:
+			if all_ids.has(boss_id):
+				problems += " dup:%s" % boss_id
+			all_ids[boss_id] = tier_id
+	_check(problems == "", "cada torneio tem pool de 6 bosses válidos e os pools NÃO se repetem%s" % problems)
+	_check(all_ids.size() == 18, "o total de bosses de pool é 18 (6 por torneio), medido %d" % all_ids.size())
+	# Todo id de pool existe em enemies.json COMO boss.
+	var enemies := ContentRepositoryScript.load_enemies()
+	var unknown := ""
+	for boss_id: String in all_ids.keys():
+		var template := ContentRepositoryScript.find_enemy(enemies, boss_id)
+		if template.is_empty() or not bool(template.get("boss", false)):
+			unknown += " %s" % boss_id
+	_check(unknown == "", "todo boss de pool existe no enemies.json como boss%s" % unknown)
+
+## O sorteio cobre o POOL INTEIRO, nunca sai do tier e não repete o anterior.
+func _test_final_boss_draw_covers_pool_and_no_repeat() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20261010
+	var problems := ""
+	for tier_id: String in ["t1", "t2", "t3"]:
+		var pool: Array = BossPoolScript.pool_for(tier_id)
+		var pool_set := {}
+		for boss_id: String in pool:
+			pool_set[boss_id] = true
+		var seen := {}
+		var previous := ""
+		var repeats := 0
+		var foreign := 0
+		for i in 400:
+			var drawn: String = BossPoolScript.draw_final_boss(tier_id, rng, previous)
+			if previous != "" and drawn == previous:
+				repeats += 1
+			if not pool_set.has(drawn):
+				foreign += 1
+			seen[drawn] = true
+			previous = drawn
+		# LOG MEDIDO da cobertura (aparece no console do teste).
+		print("    [%s] %d sorteios | %d/%d candidatos do pool apareceram | %d sorteados de fora do tier | %d repetições em sequência" % [tier_id, 400, seen.size(), pool.size(), foreign, repeats])
+		print("      pool de %s: %s" % [tier_id, ", ".join(PackedStringArray(pool))])
+		if seen.size() != pool.size():
+			problems += " %s cobre %d/%d" % [tier_id, seen.size(), pool.size()]
+		if repeats != 0:
+			problems += " %s repetiu %d vez(es)" % [tier_id, repeats]
+		if foreign != 0:
+			problems += " %s sorteou %d boss(es) de fora" % [tier_id, foreign]
+	_check(problems == "", "o sorteio cobre o pool inteiro, fica no próprio tier e nunca repete em sequência%s" % problems)
+	# Isolamento explícito: o pool do Menor e o do Grande não se sobrepõem.
+	var t1_pool: Array = BossPoolScript.pool_for("t1")
+	var t3_pool: Array = BossPoolScript.pool_for("t3")
+	var overlap := ""
+	for boss_id: String in t1_pool:
+		if t3_pool.has(boss_id):
+			overlap += " %s" % boss_id
+	_check(overlap == "", "um tier nunca usa o pool de outro (sem interseção)%s" % overlap)
+	# A MEMÓRIA CURTA do GameState: a sequência de sorteios nunca repete.
+	var player = _fighter({"id": "draw", "level": 6, "rank_points": 900, "base_vitality": 10, "base_strength": 12})
+	var gs = _tournament_game_state(player)
+	gs.last_final_boss_by_tier = {}
+	var rng2 := RandomNumberGenerator.new()
+	rng2.seed = 777
+	var previous_gs := ""
+	var gs_repeats := 0
+	var gs_sequence := PackedStringArray()
+	for i in 30:
+		var drawn_gs: String = gs.draw_final_boss("t2", rng2)
+		if previous_gs != "" and drawn_gs == previous_gs:
+			gs_repeats += 1
+		previous_gs = drawn_gs
+		gs_sequence.append(drawn_gs)
+	print("    GameState.draw_final_boss('t2') em 30 sorteios seguidos: %s" % ", ".join(gs_sequence))
+	_check(gs_repeats == 0, "GameState.draw_final_boss usa a memória curta (0 repetições em 30 sequenciais)")
+	_check(gs.draw_final_boss("tier_inexistente", rng2) == "", "tier sem pool devolve vazio, sem quebrar")
+	gs.free()
+
+## O GRAU do boss SORTEADO é o que alimenta a tabela de drop (§5.3).
+func _test_final_boss_grade_feeds_drop() -> void:
+	var enemies := ContentRepositoryScript.load_enemies()
+	var player = _fighter({"id": "gradefeed", "level": 6, "rank_points": 900, "base_vitality": 10, "base_strength": 12})
+	var gs = _tournament_game_state(player)
+	_check(gs.start_tournament("t2"), "torneio Maior inicia para o teste do grau->drop")
+	gs.tourney_round = gs.tournament_round_total() - 1
+	_check(gs.is_final_tournament_round(), "está na rodada final")
+	var mismatch := ""
+	for boss_id: String in BossPoolScript.pool_for("t2"):
+		gs.final_boss_id = str(boss_id)
+		var template := ContentRepositoryScript.find_enemy(enemies, str(boss_id))
+		var want := BossDropTable.clamp_grade(int(template.get("grade", 1)))
+		if gs._final_boss_grade() != want:
+			mismatch += " %s(%d≠%d)" % [boss_id, gs._final_boss_grade(), want]
+	_check(mismatch == "", "o GRAU do boss sorteado alimenta a tabela de drop (todos batem)%s" % mismatch)
+	# A LINHA da tabela muda conforme o grau do sorteado (grade 1 vs grade 5).
+	gs.final_boss_id = "t1_casca"
+	var row_low: Dictionary = BossDropTable.weights_for_grade(gs._final_boss_grade())
+	gs.final_boss_id = "t3_campeao"
+	var row_high: Dictionary = BossDropTable.weights_for_grade(gs._final_boss_grade())
+	_check(int(row_low["comum"]) == 55 and int(row_high["comum"]) == 10, "o grau do sorteado escolhe a LINHA do plano (g1 comum 55% vs g5 comum 10%)")
+	_check(int(row_low["lendario"]) < int(row_high["lendario"]), "grau maior do sorteado = item melhor (lendário %d%% < %d%%)" % [int(row_low["lendario"]), int(row_high["lendario"])])
+	# O drop REAL da final usa essa linha: exatamente 1 item.
+	gs.final_boss_id = "t2_rufus"
+	var r: Dictionary = gs.on_victory(50, 40)
+	_check(bool(r.get("campaign_cleared", false)) and (r.get("loot", []) as Array).size() == 1, "a vitória final entrega 1 item do boss sorteado")
+	gs.free()
+
+## A rodada final materializa o boss SORTEADO (nome/grau/identidade) e não o
+## re-sorteia a cada chamada; a apresentação/arena leem o mesmo boss.
+func _test_build_current_foe_uses_drawn_boss() -> void:
+	var player = _fighter({"id": "foe", "level": 8, "rank_points": 2300, "base_vitality": 10, "base_strength": 14})
+	var gs = _tournament_game_state(player)
+	_check(gs.start_tournament("t3"), "Grande Torneio inicia")
+	gs.tourney_round = gs.tournament_round_total() - 1
+	var foe = gs.build_current_foe()
+	_check(foe != null, "a rodada final materializa um boss")
+	if foe == null:
+		gs.free()
+		return
+	var pool: Array = BossPoolScript.pool_for("t3")
+	_check(pool.has(str(foe.id)), "o boss final pertence ao pool do PRÓPRIO tier (%s)" % str(foe.id))
+	_check(gs.final_boss_id == str(foe.id), "final_boss_id guarda o boss sorteado")
+	var again = gs.build_current_foe()
+	_check(again != null and str(again.id) == str(foe.id), "chamar de novo mantém o MESMO boss (não re-sorteia)")
+	# Espelha o app.gd: o boss materializado é o `current_enemy` da luta.
+	gs.current_enemy = foe
+	var enemies := ContentRepositoryScript.load_enemies()
+	var template := ContentRepositoryScript.find_enemy(enemies, str(foe.id))
+	_check(gs.final_boss_name() == str(template.get("display_name", "")), "final_boss_name() mostra o boss sorteado ('%s')" % gs.final_boss_name())
+	_check(gs.current_boss_grade() == BossDropTable.clamp_grade(int(template.get("grade", 1))), "current_boss_grade() mostra o grau do boss sorteado (%d)" % gs.current_boss_grade())
+	var identity: Dictionary = PresentationSystemScript.enemy_identity(foe)
+	_check(str(identity.get("nickname", "")) != "" and str(identity.get("weakness", "")) != "" and not (identity.get("taunts", []) as Array).is_empty(), "a identidade do boss sorteado traz apelido/fraqueza/provocação")
 	gs.free()
 
 

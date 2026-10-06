@@ -123,5 +123,474 @@
       "accuracy": 0.65,
       "pierce": true
     }
+  },
+  {
+    "id": "t1_casca",
+    "display_name": "Casca, o Cabeção",
+    "nickname": "O Cabeça-Dura",
+    "description": "Ex-capataz de obra do porto, 1,76 m, 98 kg. Aprendeu a apanhar na fila do pão.",
+    "trait": "slow",
+    "weakness": "Lento: −0,15 de esquiva e −10% de precisão própria; anuncia o golpe antes de descer.",
+    "taunts": [
+      "Vou te atropelar como um carrinho de carga.",
+      "Aqui é quebra osso e segue o baile.",
+      "Anda, tenho obra amanhã de manhã."
+    ],
+    "base_health": 110,
+    "base_attack": 13,
+    "base_defense": 8,
+    "base_luck": 3,
+    "grade": 1,
+    "boss": true,
+    "special": {
+      "id": "cabecada",
+      "display_name": "Cabeçada Bruta",
+      "description": "A cada três golpes, uma cabeçada lenta e pesada.",
+      "multiplier": 1.6,
+      "accuracy": 0.65
+    }
+  },
+  {
+    "id": "t1_medo",
+    "display_name": "Medo, o Exibido",
+    "nickname": "O Palhaço da Areia",
+    "description": "Artista de feira virado gladiador, 1,70 m, 71 kg. Gosta de plateia — e de bancar o durão.",
+    "trait": "frail",
+    "weakness": "Frágil: leva +25% de dano de golpes pesados (GOLPE FORTE, INVESTIDA ou BOMBARDEIO o derrubam).",
+    "taunts": [
+      "Rir por último é a minha especialidade.",
+      "Plateia, olha a mágica: você some!",
+      "Eu já morri de mentira mil vezes — você, só uma."
+    ],
+    "base_health": 96,
+    "base_attack": 12,
+    "base_defense": 7,
+    "base_luck": 4,
+    "grade": 1,
+    "boss": true,
+    "special": {
+      "id": "pirueta",
+      "display_name": "Pirueta Desesperada",
+      "description": "A cada três golpes, uma investida acrobática e imprevisível.",
+      "multiplier": 1.5,
+      "accuracy": 0.7
+    }
+  },
+  {
+    "id": "t1_pulga",
+    "display_name": "Pulga, o Escorregadio",
+    "nickname": "O Intocável",
+    "description": "Ladrão de arena, 1,68 m, 63 kg. Ninguém ainda conseguiu pegar o pequeno nas mãos.",
+    "trait": "dodgy",
+    "weakness": "Ágil: +0,10 de esquiva própria; escorrega dos golpes, mas ainda é feito de carne.",
+    "taunts": [
+      "Errou! De novo. Errou!",
+      "Corre atrás, grandão.",
+      "Cem tentativas, cem ventos."
+    ],
+    "base_health": 97,
+    "base_attack": 13,
+    "base_defense": 7,
+    "base_luck": 6,
+    "grade": 2,
+    "boss": true,
+    "special": {
+      "id": "esquiva_suja",
+      "display_name": "Esquiva Suja",
+      "description": "A cada três golpes, um bote rápido por trás da guarda.",
+      "multiplier": 1.6,
+      "accuracy": 0.68
+    }
+  },
+  {
+    "id": "t1_muralha",
+    "display_name": "Muralha, o Bloqueio",
+    "nickname": "O Portão de Ferro",
+    "description": "Guarda-costas aposentado, 1,90 m, 128 kg. Já aparou tudo o que jogaram nele.",
+    "trait": "armoured",
+    "weakness": "Couraçado: as placas seguram −20% do dano corpo a corpo, mas a armadura pesada custa −0,10 de esquiva.",
+    "taunts": [
+      "Bata até cansar; eu espero.",
+      "Sou a porta que ninguém atravessa.",
+      "Seu melhor golpe? Ri."
+    ],
+    "base_health": 95,
+    "base_attack": 13,
+    "base_defense": 7,
+    "base_luck": 4,
+    "grade": 2,
+    "boss": true,
+    "special": {
+      "id": "muro",
+      "display_name": "Muro de Aço",
+      "description": "A cada três golpes, uma investida de ombro que empurra o adversário.",
+      "multiplier": 1.7,
+      "accuracy": 0.66
+    }
+  },
+  {
+    "id": "t1_garra",
+    "display_name": "Garra, a Fera da Areia",
+    "nickname": "A Mão do Deserto",
+    "description": "Selvagem das arenas do interior, 1,84 m, 105 kg. Luta como quem nunca saiu da selva.",
+    "trait": "beast",
+    "weakness": "Fera: +10% de dano causado — bate como um animal acuado.",
+    "taunts": [
+      "Grrh — chega mais perto.",
+      "A areia tem fome hoje.",
+      "Não falo. Rasgo."
+    ],
+    "base_health": 120,
+    "base_attack": 15,
+    "base_defense": 9,
+    "base_luck": 5,
+    "grade": 3,
+    "boss": true,
+    "special": {
+      "id": "dentada",
+      "display_name": "Golpe de Garra",
+      "description": "A cada três golpes, uma rajada de garras que dilacera.",
+      "multiplier": 1.8,
+      "accuracy": 0.68
+    }
+  },
+  {
+    "id": "t1_vulcano",
+    "display_name": "Vulcano, o Forjado",
+    "nickname": "O Ferreiro Campeão",
+    "description": "Ferreiro que fez a própria armadura e a testou na areia, 1,88 m, 120 kg. Cada golpe é sua forja.",
+    "trait": "glass",
+    "weakness": "Vidro: +15% de dano recebido de qualquer tipo e +10% de dano causado — a fúria cobra dos dois lados.",
+    "taunts": [
+      "Isso que você sente é o calor da forja.",
+      "Fiz esta armadura com as mãos que vão te enterrar.",
+      "Volta quando tiver sido temperado."
+    ],
+    "base_health": 132,
+    "base_attack": 16,
+    "base_defense": 10,
+    "base_luck": 7,
+    "grade": 3,
+    "boss": true,
+    "special": {
+      "id": "martelo",
+      "display_name": "Martelo de Forja",
+      "description": "A cada três golpes, uma martelada que amassa a guarda.",
+      "multiplier": 1.9,
+      "accuracy": 0.66
+    }
+  },
+  {
+    "id": "t2_cinza",
+    "display_name": "Cinza, o Sombrio",
+    "nickname": "A Sombra da Arena",
+    "description": "Sobrevivente das arenas noturnas, 1,80 m, 88 kg. Luta sem que o público veja de onde vem.",
+    "trait": "dodgy",
+    "weakness": "Ágil: +0,10 de esquiva própria; some no meio do golpe.",
+    "taunts": [
+      "Você já perdeu — só ainda está de pé.",
+      "A escuridão lembra seu nome.",
+      "Nem o público me vê; quem dirá você."
+    ],
+    "base_health": 86,
+    "base_attack": 11,
+    "base_defense": 6,
+    "base_luck": 7,
+    "grade": 3,
+    "boss": true,
+    "special": {
+      "id": "corte_noturno",
+      "display_name": "Corte Noturno",
+      "description": "A cada três golpes, um corte que sai da escuridão.",
+      "multiplier": 1.8,
+      "accuracy": 0.68
+    }
+  },
+  {
+    "id": "t2_ferro",
+    "display_name": "Ferro, o Teimoso",
+    "nickname": "O Inquebrável",
+    "description": "Antigo carrasco das minas, 1,92 m, 132 kg. Já levaram tudo dele; a carne continua lá.",
+    "trait": "armoured",
+    "weakness": "Couraçado: −20% de dano corpo a corpo recebido, mas −0,10 de esquiva.",
+    "taunts": [
+      "Pode bater; já nasci remendado.",
+      "A morte já desistiu de mim duas vezes.",
+      "Cada cicatriz sua futura está aqui."
+    ],
+    "base_health": 95,
+    "base_attack": 13,
+    "base_defense": 7,
+    "base_luck": 5,
+    "grade": 3,
+    "boss": true,
+    "special": {
+      "id": "investida_ferro",
+      "display_name": "Investida de Ferro",
+      "description": "A cada três golpes, uma investida de armadura que esmaga.",
+      "multiplier": 1.9,
+      "accuracy": 0.66
+    }
+  },
+  {
+    "id": "t2_aguia",
+    "display_name": "Águia, a Implacável",
+    "nickname": "O Bico de Aço",
+    "description": "Caçadora de recompensas, 1,74 m, 72 kg. Mire nos olhos e ela já está nas suas costas.",
+    "trait": "frail",
+    "weakness": "Frágil: leva +25% de dano de golpes pesados — subestime-a e ela cai.",
+    "taunts": [
+      "Já te vi sangrar antes de te ver.",
+      "Um golpe. É só o que preciso.",
+      "Fica parado: assim acaba mais rápido."
+    ],
+    "base_health": 96,
+    "base_attack": 12,
+    "base_defense": 7,
+    "base_luck": 6,
+    "grade": 3,
+    "boss": true,
+    "special": {
+      "id": "bote",
+      "display_name": "Bote da Águia",
+      "description": "A cada três golpes, um bote preciso nas costas.",
+      "multiplier": 1.9,
+      "accuracy": 0.7
+    }
+  },
+  {
+    "id": "t2_touro",
+    "display_name": "Touro, o Indomável",
+    "nickname": "O Chifre de Ferro",
+    "description": "Ex-mineiro do norte, 1,94 m, 138 kg. Dizem que nunca recuou um passo na vida.",
+    "trait": "beast",
+    "weakness": "Fera: +10% de dano causado — quanto mais perto, pior para você.",
+    "taunts": [
+      "Vou te mandar para as profundezas de onde vim.",
+      "Ruge comigo, se conseguir.",
+      "Meu chifre conhece o gosto do sangue."
+    ],
+    "base_health": 120,
+    "base_attack": 15,
+    "base_defense": 9,
+    "base_luck": 7,
+    "grade": 4,
+    "boss": true,
+    "special": {
+      "id": "marrada",
+      "display_name": "Marrada Brutal",
+      "description": "A cada três golpes, uma marrada que levanta o adversário do chão.",
+      "multiplier": 2.0,
+      "accuracy": 0.67
+    }
+  },
+  {
+    "id": "t2_titano",
+    "display_name": "Titano, o Colosso",
+    "nickname": "A Torre da Areia",
+    "description": "Gigante do circo itinerante, 2,05 m, 151 kg. Tão grande que o chão treme antes dele.",
+    "trait": "slow",
+    "weakness": "Lento: −0,15 de esquiva e −10% de precisão própria; mas um acerto dele dói.",
+    "taunts": [
+      "Você é do tamanho de um dos meus dedos.",
+      "Fica quieto, formiguinha.",
+      "Vou te plantar no fundo da arena."
+    ],
+    "base_health": 124,
+    "base_attack": 15,
+    "base_defense": 9,
+    "base_luck": 6,
+    "grade": 3,
+    "boss": true,
+    "special": {
+      "id": "pisao",
+      "display_name": "Pisão Sísmico",
+      "description": "A cada três golpes, um pisão que faz a arena tremer.",
+      "multiplier": 2.0,
+      "accuracy": 0.63
+    }
+  },
+  {
+    "id": "t2_rufus",
+    "display_name": "Rufus, o Tormenta",
+    "nickname": "O Furacão de Ferro",
+    "description": "Campeão rebaixado das arenas do sul, 1,86 m, 116 kg. Luta com a fúria de quem perdeu tudo.",
+    "trait": "glass",
+    "weakness": "Vidro: +15% de dano recebido de qualquer tipo e +10% de dano causado — a fúria não escolhe lado.",
+    "taunts": [
+      "Já fui rei; hoje sou o pesadelo dos reis.",
+      "Minha raiva é maior que sua armadura.",
+      "Tira a coroa e me enfrenta de igual."
+    ],
+    "base_health": 132,
+    "base_attack": 16,
+    "base_defense": 10,
+    "base_luck": 8,
+    "grade": 4,
+    "boss": true,
+    "special": {
+      "id": "tormenta",
+      "display_name": "Rajada da Tormenta",
+      "description": "A cada três golpes, uma rajada de cortes furiosos.",
+      "multiplier": 2.1,
+      "accuracy": 0.65
+    }
+  },
+  {
+    "id": "t3_automato",
+    "display_name": "Ferro-Vivo, o Autômato",
+    "nickname": "A Máquina de Guerra",
+    "description": "Gladiador remendado por ferreiros, 1,96 m, 143 kg. Mais placas que carne.",
+    "trait": "armoured",
+    "weakness": "Couraçado: −20% de dano corpo a corpo recebido, mas −0,10 de esquiva.",
+    "taunts": [
+      "Engrenagem não sente medo.",
+      "Reparo-me mais rápido do que você me quebra.",
+      "Sou o último passo da sua carreira."
+    ],
+    "base_health": 95,
+    "base_attack": 13,
+    "base_defense": 7,
+    "base_luck": 6,
+    "grade": 4,
+    "boss": true,
+    "special": {
+      "id": "prensa",
+      "display_name": "Prensa de Placas",
+      "description": "A cada três golpes, uma prensa que esmaga a guarda.",
+      "multiplier": 2.0,
+      "accuracy": 0.66
+    }
+  },
+  {
+    "id": "t3_viuva",
+    "display_name": "A Viúva de Ébano",
+    "nickname": "O Luto Armado",
+    "description": "Duelista lendária de negro, 1,78 m, 74 kg. Nunca lutou duas vezes do mesmo jeito.",
+    "trait": "dodgy",
+    "weakness": "Ágil: +0,10 de esquiva própria; lê o seu golpe antes de você dar.",
+    "taunts": [
+      "Meu luto é por você — só adiantei os preparos.",
+      "Fico de luto por todos que enfrento.",
+      "Negro combina com a sua última hora."
+    ],
+    "base_health": 97,
+    "base_attack": 13,
+    "base_defense": 7,
+    "base_luck": 9,
+    "grade": 4,
+    "boss": true,
+    "special": {
+      "id": "estocada_ebano",
+      "display_name": "Estocada de Ébano",
+      "description": "A cada três golpes, uma estocada que atravessa entre as placas.",
+      "multiplier": 2.0,
+      "accuracy": 0.7
+    }
+  },
+  {
+    "id": "t3_carrasco",
+    "display_name": "O Carrasco Mudo",
+    "nickname": "A Lâmina Silenciosa",
+    "description": "Executador do Coliseu, 1,98 m, 148 kg. Não grita, não provoca; só termina.",
+    "trait": "slow",
+    "weakness": "Lento: −0,15 de esquiva e −10% de precisão própria; o golpe é anunciado, mas fatal.",
+    "taunts": [
+      "...",
+      "Silêncio. É tudo o que você ouve antes.",
+      "Não falo com condenados."
+    ],
+    "base_health": 124,
+    "base_attack": 15,
+    "base_defense": 9,
+    "base_luck": 6,
+    "grade": 4,
+    "boss": true,
+    "special": {
+      "id": "decapitar",
+      "display_name": "Golpe do Carrasco",
+      "description": "A cada três golpes, um golpe de cima para baixo que busca o pescoço.",
+      "multiplier": 2.1,
+      "accuracy": 0.64
+    }
+  },
+  {
+    "id": "t3_leao",
+    "display_name": "Leão de Bronze",
+    "nickname": "A Juba de Metal",
+    "description": "Fera de exposição virada campeã, 1,90 m, 130 kg. Ruge antes de cada investida.",
+    "trait": "beast",
+    "weakness": "Fera: +10% de dano causado — cada rugido vale um golpe a mais.",
+    "taunts": [
+      "O público já se despediu de você.",
+      "Meu rugido é o último som que você ouve.",
+      "A juba é de bronze; os dentes, não."
+    ],
+    "base_health": 120,
+    "base_attack": 15,
+    "base_defense": 9,
+    "base_luck": 8,
+    "grade": 5,
+    "boss": true,
+    "special": {
+      "id": "rugido",
+      "display_name": "Rugido de Bronze",
+      "description": "A cada três golpes, uma carga selvagem com o peso todo do corpo.",
+      "multiplier": 2.1,
+      "accuracy": 0.68
+    }
+  },
+  {
+    "id": "t3_tirano",
+    "display_name": "Tirano Sanguinário",
+    "nickname": "O Punho do Coliseu",
+    "description": "Senhor das arenas do leste, 2,00 m, 152 kg. Coleciona campeões no chão.",
+    "trait": "glass",
+    "weakness": "Vidro: +15% de dano recebido e +10% causado — a tirania cobra dos dois lados.",
+    "taunts": [
+      "Traga o próximo.",
+      "Sua linhagem termina nesta areia.",
+      "Eu não luto; eu julgo."
+    ],
+    "base_health": 132,
+    "base_attack": 16,
+    "base_defense": 10,
+    "base_luck": 9,
+    "grade": 5,
+    "boss": true,
+    "special": {
+      "id": "furia_tirana",
+      "display_name": "Fúria Tirânica",
+      "description": "A cada três golpes, uma saraivada de golpes furiosos.",
+      "multiplier": 2.2,
+      "accuracy": 0.66
+    }
+  },
+  {
+    "id": "t3_campeao",
+    "display_name": "O Campeão Sem Coroa",
+    "nickname": "O Trono Vazio",
+    "description": "Rei destronado da arena central, 2,02 m, 156 kg. Luta como se a coroa ainda fosse dele.",
+    "trait": "beast",
+    "weakness": "Fera: +10% de dano causado — bate como quem não aceita a derrota.",
+    "taunts": [
+      "A coroa some, mas o rei, não.",
+      "Já enterrei cinquenta como você neste chão.",
+      "Dobre o joelho e eu finjo que foi rápido."
+    ],
+    "base_health": 120,
+    "base_attack": 15,
+    "base_defense": 9,
+    "base_luck": 9,
+    "grade": 5,
+    "boss": true,
+    "special": {
+      "id": "trono",
+      "display_name": "Golpe do Trono",
+      "description": "A cada três golpes, um golpe que atravessa a defesa.",
+      "multiplier": 2.2,
+      "accuracy": 0.65,
+      "pierce": true
+    }
   }
 ]

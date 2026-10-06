@@ -204,9 +204,9 @@ Hoje já é procedural: **luta/inimigo** (escala por nível/tier), **item gerado
 | --- | --- | --- |
 | **6** ✅ | §3.1 bug do torneio/pontos + §3.2 GANHOU/PERDEU + resumo em modal | reproduzir o bug antes e depois na QA (o torneio **não** reinicia ao distribuir pontos); cartaz antes do resumo |
 | **7** ✅ | Gerador de arte + **cidades e arenas** geradas (§4.1/4.2) | `gen_assets.gd` roda headless e produz os PNGs; cidade com imagem de verdade na QA; 3 cenários por faixa |
-| **8** | Gladiador em camadas + **arma na mão** + armaduras no corpo + efeitos + projéteis | QA com print do gladiador equipado e do ataque com arma e projétil |
+| **8** ✅ | Gladiador em camadas + **arma na mão** + armaduras no corpo + efeitos + projéteis | QA com print do gladiador equipado e do ataque com arma e projétil |
 | **9** ✅ | Itens: pool maior + **variações únicas** + tiers §5.3 | teste de tabela de drop por grau (seed fixa) + variações fora da loja |
-| **10** | Boss final **aleatório** + **COMBATE FINAL** evidente + item só do boss (§5.1/5.3) | sorteio cobrindo o pool, nenhum item em rodada 1..n−1, marcação clara na tela |
+| **10** ✅ | Boss final **aleatório** + **COMBATE FINAL** evidente + item só do boss (§5.1/5.3) | sorteio cobrindo o pool, nenhum item em rodada 1..n−1, marcação clara na tela |
 | **11** | **Permadeath** no torneio + Mural dos caídos (§6) | aviso e confirmação, personagem apagado na derrota, arena livre intacta |
 
 Depois da 11: rebalanceamento final remedido (a economia e a curva são novamente medidas e registradas no
@@ -404,3 +404,100 @@ torneio, prêmio de item e a bolsa com a variação única.
 que **não existe na fonte padrão do Godot**. Medi os glifos por renderização (`qa/qa_glyphs.tscn`, porque
 `has_char()` mente): a fonte **tem** `★ ☆ ✦ ✧ ✪ ● ■ ◆ ▲ ✚ ✖ ⚔ ☠ ♥` e **não tem** `⭐`. Trocado por `★` — a
 apresentação agora mostra `★★★★★ (5/5)`.
+
+---
+
+## 14. Resultado da etapa 10 — medido (06/10/2026)
+
+**POOL DE BOSSES FINAIS por torneio (§5.3).** `data/tournaments.json` ganhou `boss_pool` e
+`data/enemies.json` ganhou **18 bosses** (6 por tier, 24 inimigos no arquivo com os 6 base intactos). Cada
+candidato tem nome próprio, apelido, descrição (altura/peso), **traço** e uma **fraqueza que combina com o
+traço**. O **grau (1–5)** é uma FAIXA por tier, com o topo no candidato mais duro do pool:
+**Menor 1–3 · Maior 3–4 · Grande 4–5**. Como o grau define a tabela de drop, o torneio de entrada **não**
+entrega mais a tabela do Grande — o plano avisa contra "farm de lendário no torneio pequeno".
+
+| Torneio | id | Nome | Grau | Traço | HP/ATK/DEF/SORTE |
+| --- | --- | --- | --- | --- | --- |
+| Menor t1 | `t1_casca` | Casca, o Cabeção | 1★ | Lento | 110/13/8/3 |
+| Menor t1 | `t1_medo` | Medo, o Exibido | 1★ | Frágil | 96/12/7/4 |
+| Menor t1 | `t1_pulga` | Pulga, o Escorregadio | 2★ | Ágil | 97/13/7/6 |
+| Menor t1 | `t1_muralha` | Muralha, o Bloqueio | 2★ | Couraçado | 95/13/7/4 |
+| Menor t1 | `t1_garra` | Garra, a Fera da Areia | 3★ | Fera | 120/15/9/5 |
+| Menor t1 | `t1_vulcano` | Vulcano, o Forjado | 3★ | Vidro | 132/16/10/7 |
+| Maior t2 | `t2_cinza` | Cinza, o Sombrio | 3★ | Ágil | 86/11/6/7 |
+| Maior t2 | `t2_ferro` | Ferro, o Teimoso | 3★ | Couraçado | 95/13/7/5 |
+| Maior t2 | `t2_aguia` | Águia, a Implacável | 3★ | Frágil | 96/12/7/6 |
+| Maior t2 | `t2_titano` | Titano, o Colosso | 3★ | Lento | 124/15/9/6 |
+| Maior t2 | `t2_touro` | Touro, o Indomável | 4★ | Fera | 120/15/9/7 |
+| Maior t2 | `t2_rufus` | Rufus, o Tormenta | 4★ | Vidro | 132/16/10/8 |
+| Grande t3 | `t3_automato` | Ferro-Vivo, o Autômato | 4★ | Couraçado | 95/13/7/6 |
+| Grande t3 | `t3_viuva` | A Viúva de Ébano | 4★ | Ágil | 97/13/7/9 |
+| Grande t3 | `t3_carrasco` | O Carrasco Mudo | 4★ | Lento | 124/15/9/6 |
+| Grande t3 | `t3_leao` | Leão de Bronze | 5★ | Fera | 120/15/9/8 |
+| Grande t3 | `t3_tirano` | Tirano Sanguinário | 5★ | Vidro | 132/16/10/9 |
+| Grande t3 | `t3_campeao` | O Campeão Sem Coroa | 5★ | Fera | 120/15/9/9 |
+
+**Calibração e grau.** O `grade` **não entra no combate** (só na apresentação/arena e na tabela de drop),
+então o grau foi atribuído pela FAIXA do tier e pela dureza REAL medida — não precisa mexer nas taxas. A
+força dos candidatos foi calibrada contra o boss final antigo (`grande_gladiador`, hp120/atk15/def9), que
+era quem produzia a curva do §5.3; o HP/ATK do pool é compensado pelo **traço** (o `Frágil`/`Lento`/`Vidro`
+levam mais vida/ataque, o `Couraçado`/`Ágil`/`Fera` levam menos) para que a faixa de grau case com a dureza.
+O `rounds` de cada tier aponta para o **pior-caso do pool** (`t1_vulcano`, `t2_touro`, `t3_tirano`) — é o
+valor que o `run_balance_test.gd` mede.
+
+**Sorteio (§5.3).** `scripts/systems/boss_pool.gd` (`BossPool`) é a camada PURA: `pool_for(tier_id)` lê o pool
+do próprio tier e `draw_final_boss(tier_id, rng, previous_id)` sorteia excluindo o último do tier (RNG
+opcional → reprodutível por seed). A UI **não** sorteia: `GameState.draw_final_boss(tier_id, rng)` guarda o
+resultado em `final_boss_id` e a **memória curta** em `last_final_boss_by_tier` (por tier) para não repetir o
+mesmo boss duas vezes seguidas. `build_current_foe()` materializa esse boss na rodada final; apresentação,
+arena e drop leem o **mesmo** boss.
+
+**Cobertura MEDIDA (log de `run_systems_test.gd`, seed `20261010`, 400 sorteios por tier):**
+
+```
+[t1] 400 sorteios | 6/6 candidatos do pool apareceram | 0 sorteados de fora do tier | 0 repetições em sequência
+[t2] 400 sorteios | 6/6 candidatos do pool apareceram | 0 sorteados de fora do tier | 0 repetições em sequência
+[t3] 400 sorteios | 6/6 candidatos do pool apareceram | 0 sorteados de fora do tier | 0 repetições em sequência
+GameState.draw_final_boss('t2') em 30 sorteios seguidos: t2_rufus, t2_cinza, t2_ferro, t2_touro, t2_aguia,
+  t2_touro, t2_rufus, t2_ferro, t2_titano, t2_rufus, t2_aguia, t2_ferro, ... (nenhum adjacente igual)
+```
+
+O grau do boss **sorteado** alimenta a tabela de drop: testado para os 6 bosses do t2 (`_final_boss_grade()` ==
+o grau do template) e pela linha do plano (g1 `comum 55%` vs g5 `comum 10%`). A vitória final continua
+entregando **exatamente 1 item** (do conjunto do tier), e rodadas 1..n−1 seguem só ouro + XP.
+
+**Escada de prêmio (mix de raridade esperado na final = grau do boss sorteado + empurrão do tier/rank):**
+
+| Torneio | Grau de referência | Comum | Incomum | Raro | Épico | Lendário | Épico+Lendário |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Menor t1 | 3★ | 28% | 30% | 24% | 14% | 4% | **18%** |
+| Maior t2 | 4★ | 5% | 28% | 34% | 26% | 7% | **33%** |
+| Grande t3 | 5★ | 5% | 22% | 34% | 29% | 10% | **39%** |
+
+(a média do pool desenhado: Menor 13% · Maior 27% · Grande 36% de épico+lendário.) Com as faixas de grau
+1–3/3–4/4–5, o Menor **deixa de entregar a tabela do Grande** — subir de tier volta a valer a pena.
+
+**Balanceamento ANTES → DEPOIS (o `run_balance_test.gd` NÃO foi tocado; metas 60/50/50 intactas):**
+
+| Medida | Antes (etapa 9) | Depois (etapa 10) | Meta |
+| --- | --- | --- | --- |
+| Torneio Menor, nível 5 equipado | 97% | **97%** | 60% |
+| Torneio Maior, nível 8 equipado | 93% | **93%** | 50% |
+| Grande Torneio, nível 12 equipado | 90% | **91%** | 50% |
+| Escada (nível 5): menor > maior ≥ grande | 96 > 80 ≥ 44 | **97 > 81 ≥ 47** | ordem obrigatória |
+
+A ferramenta `tools/measure_pool.gd` (não é suíte) mediu os 18 candidatos contra a régua antiga
+(`grande_gladiador`, que reproduz 96/91/89 no alvo e 96/76/41 no nível 5): no alvo, Menor 97–100%,
+Maior 92–99%, Grande 89–97%; no nível 5, o pior caso por tier é 97% / 79% / 39%. **O grau NÃO move essas
+taxas:** medido antes e depois de trocar os graus para as faixas do §5.3, o `measure_pool` deu resultado
+**idêntico linha a linha** (só o rótulo "grau N" muda) — confirmando que o `grade` é só drop/apresentação.
+
+**Verificação:** regras **PASS** (4 testes novos: forma/isolamento dos pools, cobertura + anti-repetição, grau →
+drop, boss materializado na final), arte **PASS**, **fluxo PASS** e **balanceamento PASS** (`EXIT=0`). QA com o
+jogo aberto: **duas finais diferentes** — `Pulga, o Escorregadio` (2★, prêmio **Comum** `Pique`) no Menor e
+`A Viúva de Ébano` (4★, prêmio **Raro** `Lança longa`) no Grande — cada uma com a faixa COMBATE FINAL, o grau
+em estrelas, a apresentação completa (apelido/descrição/fraqueza/provocação) e o prêmio do boss.
+
+**Defeito de teste corrigido:** a asserção do símbolo de grau em `run_systems_test.gd` ainda usava o emoji
+`⭐` (o código já usa `★` desde a etapa 9) e `enemies.size() == 6` (o roster cresceu para 24) — ambos eram
+falhas **pré-existentes da etapa 9**; ajustados para `★` e para "os 6 lutadores base continuam presentes".

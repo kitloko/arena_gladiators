@@ -14,6 +14,7 @@ const PotionSystemScript := preload("res://scripts/systems/potion_system.gd")
 const PresentationSystemScript := preload("res://scripts/systems/presentation_system.gd")
 const UniqueItemsScript := preload("res://scripts/systems/unique_items.gd")
 const BossDropTableScript := preload("res://scripts/systems/boss_drop_table.gd")
+const BossPoolScript := preload("res://scripts/systems/boss_pool.gd")
 
 ## Teto duro do multiplicador do público na entrada de on_victory. O teto REAL
 ## depende do rank (CrowdSystem.reward_multiplier), que passa de ×2,0 nas faixas
@@ -43,6 +44,14 @@ var tourney_tier_id: String = ""
 var tourney_round: int = 0
 var tourney_prize: int = 0
 var _tiers: Array[Dictionary] = []
+
+## BOSS FINAL SORTEADO (etapa 10 / §5.3): id do boss que a rodada final do
+## torneio corrente vai enfrentar. Materializado em build_current_foe para que a
+## apresentação, a arena e o drop falem do MESMO boss.
+var final_boss_id: String = ""
+## MEMÓRIA CURTA do sorteio (§5.3): último boss sorteado por tier, para NÃO sair
+## o mesmo duas vezes seguidas no mesmo torneio. Persiste entre torneios da sessão.
+var last_final_boss_by_tier: Dictionary = {}
 
 ## Estoque procedural da loja (tipo -> Array de itens) e o nível em que foi
 ## gerado — rerolha de graça quando o jogador sobe de nível.
@@ -99,7 +108,11 @@ func build_current_foe():
 		var tier := tournament_tier()
 		if tier.is_empty() or tourney_round < 0 or tourney_round >= tournament_round_total():
 			return null
+		# Rodada FINAL (§5.3): o boss é SORTEADO do pool do PRÓPRIO tier (memória
+		# curta, sem repetir o anterior). As demais rodadas seguem a sequência fixa.
 		var enemy_id := str(tier.get("rounds", [])[tourney_round])
+		if is_final_tournament_round():
+			enemy_id = _draw_final_boss_id()
 		var template := ContentRepositoryScript.find_enemy(enemies, enemy_id)
 		if template.is_empty():
 			return null
@@ -136,15 +149,48 @@ func tournament_notice() -> String:
 func is_final_tournament_round() -> bool:
 	return mode == "tournament" and tourney_round >= tournament_round_total() - 1
 
-## Nome do boss da rodada final (o template que o torneio já usa na última rodada).
+## SORTEIO DO BOSS FINAL (§5.3): sorteia o boss do pool do tier `tier_id` e
+## ATUALIZA a memória curta — o próximo sorteio do mesmo tier não repete este.
+## Testável: aceita um RNG de seed fixa. Devolve "" se o tier não tiver pool.
+func draw_final_boss(tier_id: String, rng: RandomNumberGenerator = null) -> String:
+	var previous := str(last_final_boss_by_tier.get(tier_id, ""))
+	var drawn := BossPoolScript.draw_final_boss(tier_id, rng, previous)
+	if drawn != "":
+		last_final_boss_by_tier[tier_id] = drawn
+	return drawn
+
+## Id do boss final do torneio corrente: devolve o já materializado ou SORTEIA uma
+## única vez (guarda em final_boss_id). Fallback: a última rodada da sequência fixa
+## do tier (se o tier não declarar boss_pool).
+func _draw_final_boss_id() -> String:
+	if final_boss_id != "":
+		return final_boss_id
+	var drawn := draw_final_boss(tourney_tier_id)
+	if drawn == "":
+		var rounds: Array = tournament_tier().get("rounds", [])
+		if not rounds.is_empty():
+			drawn = str(rounds[rounds.size() - 1])
+	final_boss_id = drawn
+	return drawn
+
+## Template (data/enemies.json) do boss final do torneio corrente ({} se não houver).
+func _final_boss_template() -> Dictionary:
+	var boss_id := _draw_final_boss_id()
+	if boss_id == "":
+		return {}
+	return ContentRepositoryScript.find_enemy(ContentRepositoryScript.load_enemies(), boss_id)
+
+## Nome do boss SORTEADO para a rodada final (fallback: a sequência fixa do tier).
 func final_boss_name() -> String:
 	if not is_final_tournament_round():
 		return ""
-	var rounds: Array = tournament_tier().get("rounds", [])
-	if rounds.is_empty():
-		return ""
-	var enemies := ContentRepositoryScript.load_enemies()
-	var template := ContentRepositoryScript.find_enemy(enemies, str(rounds[rounds.size() - 1]))
+	var boss_id := final_boss_id
+	if boss_id == "":
+		var rounds: Array = tournament_tier().get("rounds", [])
+		if rounds.is_empty():
+			return ""
+		boss_id = str(rounds[rounds.size() - 1])
+	var template := ContentRepositoryScript.find_enemy(ContentRepositoryScript.load_enemies(), boss_id)
 	return str(template.get("display_name", "o campeão"))
 
 func tournament_tiers() -> Array[Dictionary]:
@@ -179,6 +225,9 @@ func start_tournament(tier_id: String) -> bool:
 	tourney_round = 0
 	tourney_prize = 0
 	current_enemy = null
+	# Torneio novo: descarta o boss final sorteado no torneio anterior (a memória
+	# curta por tier permanece, para não repetir o mesmo boss em sequência).
+	final_boss_id = ""
 	# Entrar no torneio cura a vida cheia: quem vinha machucado da arena lutava a
 	# primeira rodada em desvantagem enquanto as seguintes já curavam (heal_full em
 	# _on_tournament_victory). O torneio não tem descanso nem loja no meio.
@@ -190,6 +239,7 @@ func start_tournament(tier_id: String) -> bool:
 ## Encerra o torneio e volta ao modo Arena Livre (persiste ganhos no save).
 func finish_tournament() -> void:
 	mode = "free"
+	final_boss_id = ""
 	save_progress()
 
 ## ABANDONAR TORNEIO (etapa 6, correção 1c): sai do torneio em andamento por
@@ -211,6 +261,7 @@ func abandon_tournament() -> Dictionary:
 	tourney_prize = 0
 	tourney_round = 0
 	current_enemy = null
+	final_boss_id = ""
 	mode = "free"
 	if player != null:
 		player.heal_full()
@@ -253,6 +304,8 @@ func start_new_campaign(player_name: String, allocation: Dictionary = {}) -> voi
 	lap = 0
 	win_streak = 0
 	tourney_prize = 0
+	final_boss_id = ""
+	last_final_boss_by_tier = {}
 	shop_stock = {}
 	_shop_roll_level = -1
 	campaign_started.emit(player)
@@ -288,6 +341,7 @@ func continue_campaign() -> bool:
 	current_enemy = null
 	mode = "free"
 	tourney_prize = 0
+	final_boss_id = ""
 	shop_stock = {}
 	_shop_roll_level = -1
 	campaign_started.emit(player)
@@ -476,15 +530,14 @@ func _owned_unique_ids() -> Array:
 			result.append(id)
 	return result
 
-## GRAU de dificuldade do boss da rodada final (1 a 5, §5.3).
+## GRAU de dificuldade do boss da rodada final (1 a 5, §5.3) — o GRAU DO BOSS
+## SORTEADO é o que alimenta a tabela de drop (ligação testada).
 func _final_boss_grade() -> int:
 	if not is_final_tournament_round():
 		return 1
-	var rounds: Array = tournament_tier().get("rounds", [])
-	if rounds.is_empty():
+	var template := _final_boss_template()
+	if template.is_empty():
 		return 1
-	var enemies := ContentRepositoryScript.load_enemies()
-	var template := ContentRepositoryScript.find_enemy(enemies, str(rounds[rounds.size() - 1]))
 	return BossDropTableScript.clamp_grade(int(template.get("grade", 1)))
 
 ## GRAU de dificuldade (1 a 5 ⭐) do boss atual — a arena/apresentação exibem.

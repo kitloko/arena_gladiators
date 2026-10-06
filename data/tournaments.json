@@ -3,21 +3,60 @@
     "id": "t1",
     "name": "Torneio Menor",
     "description": "Para quem ainda se aquece. Recompensas modestas.",
-    "rounds": ["livia", "maurus", "imperator", "grande_gladiador"],
+    "rounds": [
+      "livia",
+      "maurus",
+      "imperator",
+      "t1_vulcano"
+    ],
+    "boss_pool": [
+      "t1_casca",
+      "t1_medo",
+      "t1_pulga",
+      "t1_muralha",
+      "t1_garra",
+      "t1_vulcano"
+    ],
     "reward_multiplier": 1.0
   },
   {
     "id": "t2",
     "name": "Torneio Maior",
     "description": "Oponentes experientes. O ouro chama.",
-    "rounds": ["vettius", "maurus", "imperator", "grande_gladiador"],
+    "rounds": [
+      "vettius",
+      "maurus",
+      "imperator",
+      "t2_touro"
+    ],
+    "boss_pool": [
+      "t2_cinza",
+      "t2_ferro",
+      "t2_aguia",
+      "t2_touro",
+      "t2_titano",
+      "t2_rufus"
+    ],
     "reward_multiplier": 1.6
   },
   {
     "id": "t3",
     "name": "Grande Torneio",
     "description": "Apenas para campeões. Risco e glória máximos.",
-    "rounds": ["vettius", "imperator", "imperator", "grande_gladiador"],
+    "rounds": [
+      "vettius",
+      "imperator",
+      "imperator",
+      "t3_tirano"
+    ],
+    "boss_pool": [
+      "t3_automato",
+      "t3_viuva",
+      "t3_carrasco",
+      "t3_leao",
+      "t3_tirano",
+      "t3_campeao"
+    ],
     "reward_multiplier": 2.4
   }
 ]
