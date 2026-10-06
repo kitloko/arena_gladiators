@@ -2,7 +2,7 @@
 
 Protótipo 2D de combate por turnos inspirado no ritmo dos jogos de arena de gladiadores. Todo o cenário e a interface são montados por GDScript — a cena existe apenas como ponto de entrada.
 
-O plano de entrega está em [`docs/PLANO_MVP.md`](docs/PLANO_MVP.md), as regras de organização em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md). O histórico de números do balanceamento fica em [`docs/BALANCEAMENTO.md`](docs/BALANCEAMENTO.md), o plano de correções da versão 1.5 (com os critérios numéricos medidos) em [`docs/PLANO_CORRECOES.md`](docs/PLANO_CORRECOES.md), o plano da versão 1.6 (feedback de playtest: XP, prêmio do torneio, venda de itens, arrastar-e-soltar, 20 pontos de criação) em [`docs/PLANO_1.6.md`](docs/PLANO_1.6.md) e as **ideias ainda não implementadas** (atributos no estilo Swords and Sandals, Taunt, Sleep, armadura como reserva, apresentação do adversário, cidade como cenário, felicidade do público e rank/KD do gladiador) em [`docs/IDEIAS.md`](docs/IDEIAS.md).
+O plano de entrega está em [`docs/PLANO_MVP.md`](docs/PLANO_MVP.md), as regras de organização em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md). O histórico de números do balanceamento fica em [`docs/BALANCEAMENTO.md`](docs/BALANCEAMENTO.md), o plano de correções da versão 1.5 (com os critérios numéricos medidos) em [`docs/PLANO_CORRECOES.md`](docs/PLANO_CORRECOES.md), o plano da versão 1.6 (feedback de playtest: XP, prêmio do torneio, venda de itens, arrastar-e-soltar) em [`docs/PLANO_1.6.md`](docs/PLANO_1.6.md), a **especificação aprovada das etapas em andamento** (7 atributos, armadura, ações nomeadas, público, rank) em [`docs/PLANO_2.0.md`](docs/PLANO_2.0.md) e as ideias ainda não implementadas em [`docs/IDEIAS.md`](docs/IDEIAS.md).
 
 Feito e testado no **Godot 4.5** (`config/features` do `project.godot`). Versões 4.3/4.4 reescrevem os arquivos `.import` dos assets — se isso acontecer, `git checkout -- .` desfaz.
 
@@ -42,11 +42,15 @@ godot --headless --path . --quit
 
 ## Controles e fluxo
 
-- **Criação**: personagem neutro — nome + distribuição de **20 pontos** em Vida/Força/Defesa/Sorte (o botão de confirmar libera quando todos os pontos são distribuídos); você ganha 80 de ouro para equipar na loja antes da 1ª luta.
-- **Atacar**: dano consistente.
-- **Defender**: reduz o ataque inimigo daquela rodada.
-- **Golpe arriscado**: mais dano, porém pode falhar.
-- **Habilidade**: ação especial de arquétipo — **ainda não implementada**. A criação é neutra (sem classe), então nenhum personagem recebe arquétipo e o botão não aparece na arena; `data/archetypes.json` existe como conteúdo para quando a escolha de classe entrar.
+- **Criação**: personagem neutro — nome + distribuição de **20 pontos** entre os **7 atributos** (o botão de confirmar libera quando todos os pontos são distribuídos); você ganha 80 de ouro para equipar na loja antes da 1ª luta.
+- **Os 7 atributos**: **STR** (dano corpo a corpo e força do Taunt) · **ATT** (precisão) · **DEF** (chance de **defender** — parte do dano é bloqueada) · **AGI** (chance de **esquivar** — dano zero) · **VIT** (vida máxima, `10 + VIT×6`) · **CHA** (preço na loja, felicidade do público, exibição) · **SOR** (acerto crítico, resistência a efeitos aleatórios e pechincha).
+- **GOLPE / GOLPE FORTE / INVESTIDA** (corpo a corpo) e **TIRO / TIRO CERTEIRO / BOMBARDEIO** (à distância): ataques nomeados, com dano e precisão diferentes — GOLPE FORTE bate mais e acerta menos. O botão fica **desabilitado quando a ação é impossível** (ex.: golpe corpo a corpo longe demais).
+- **DEFESA FIRME**: você não ataca e o dano que entra na rodada é reduzido.
+- **TAUNT: (x%)**: provoca o adversário, que sofre um **efeito aleatório** — o mais comum é ser **empurrado um passo à frente**; se não puder avançar, ele te ataca com **precisão baixa**. A chance sai de **CHA** (+ STR) contra a DEF/SOR do alvo e a **SORTE do alvo resiste** ao empurrão.
+- **DORMIR**: cura **25%** da vida máxima, mas deixa você **vulnerável** no golpe seguinte (o inimigo acerta com bônus e a sua esquiva não vale). Serve como risco calculado — quem só dorme não vence.
+- **Armadura**: os itens de proteção dão **armadura**, que é uma **reserva separada da vida** — o dano consome armadura antes de encostar na vida. A luta mostra as **duas barras com números** (`VIDA x / y` e `ARMADURA x / y`); o descanso restaura as duas.
+- **Resolução do ataque**: primeiro a **esquiva** do alvo (AGI) — se esquivar aparece **"ERROU"**; depois a **auto-defesa** (DEF) — se defender, aparece **"aparou X, entrou Y"** com sinalização visual; senão o dano entra cheio.
+- **Subir de nível dá PONTOS de atributo** (4 por nível) para distribuir entre os 7 na tela do **Personagem** — o antigo menu de 4 pacotes prontos deixou de existir.
 - **Avançar / Recuar**: mover na arena — uma ação por turno (ou você se move, ou ataca/defende).
 - **Alcance**: armas melee só acertam de perto; armas de longo alcance (ex.: arco curto) erram mais conforme a distância.
 
@@ -64,4 +68,4 @@ O jogo **salva automaticamente** em `user://savegame.json` (Windows: `%APPDATA%\
 
 ## Estrutura
 
-`Main.tscn` carrega o roteador `scripts/ui/app.gd`, que alterna entre as telas em `scenes/` (criação, arena, resultado, loja e fim de campanha) com controladores em `scripts/ui/`. As regras ficam centralizadas: combate e IA do inimigo em `CombatResolver`, economia e opções de nível em `EconomySystem`, persistência em `SaveSystem`, estado e campanha em `GameState`, e conteúdo em `data/*.json` (via `ContentRepository`). A interface não duplica fórmulas de dano, preço ou recompensa.
+`Main.tscn` carrega o roteador `scripts/ui/app.gd`, que alterna entre as telas em `scenes/` (criação, arena, resultado, loja e fim de campanha) com controladores em `scripts/ui/`. As regras ficam centralizadas: combate e IA do inimigo em `CombatResolver` (agora com 7 atributos, armadura como reserva, esquiva/auto-defesa, Taunt e Dormir), economia e atributos em `EconomySystem`, persistência em `SaveSystem`, estado e campanha em `GameState`, e conteúdo em `data/*.json` (via `ContentRepository`). A interface não duplica fórmulas de dano, preço ou recompensa.

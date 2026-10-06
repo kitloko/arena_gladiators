@@ -59,7 +59,7 @@ Critérios de bug/UX (binários):
    - **níveis 1 e 2 só geram tier 1** (hoje 14% de tier 3 no nível 1, com até 106 de vida contra 58 do jogador).
 2. **`combat_resolver.gd::enemy_for_level()`** (usada pelo torneio) — de `+12 vida/+3 atq/+2 def` por nível
    para `+8/+2/+1`. É esta linha, somada ao `nível + tier×2 + rodada` de `game_state.gd:72`, que fecha o torneio.
-3. **`economy_system.gd::level_up_options()`** — Força +3→**+4**, Proteção +3→**+4**, Vigor +12→**+14**, Sorte +2.
+3. ~~**`economy_system.gd::level_up_options()`** — Força +3→**+4**, Proteção +3→**+4**, Vigor +12→**+14**, Sorte +2.~~ **Superado na etapa 1 do plano 2.0:** o menu de pacotes prontos deixou de existir — subir de nível dá **pontos de atributo** (4 por nível, `EconomySystem.attribute_points_per_level()`) para distribuir entre os 7 atributos na tela do personagem.
    O ganho de nível precisa competir com o escalonamento do inimigo, senão o nível não significa nada.
 4. Não mexer em `fight_rewards()` (ouro/XP estão saudáveis: 2,0 a 3,3 lutas por nível) nem nos preços.
 

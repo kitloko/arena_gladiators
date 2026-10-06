@@ -120,7 +120,7 @@ evidência arquivada e **commit direto na `main`** (exceção combinada para est
 
 | Etapa | Conteúdo | Aceite |
 | --- | --- | --- |
-| **1** | A (6 atributos) + 1 (pontos no nível) + E (armadura como reserva, esquiva, auto-defesa com 'aparou X, entrou Y') + 7 (ações nomeadas) + C (Taunt) + D (Sleep) | regras PASS (testes novos por atributo e por ação); balanceamento PASS sem afrouxar critérios (Arena Livre alta no nível 1, sem desabar; 3 torneios concluíveis em dificuldade crescente); fluxo PASS; duas barras na tela de luta; save antigo migrado |
+| **1** ✅ | A (**7 atributos**) + 1 (pontos no nível) + E (armadura como reserva, esquiva, auto-defesa com 'aparou X, entrou Y') + 7 (ações nomeadas) + C (Taunt) + D (Sleep) | regras PASS (testes novos por atributo e por ação); balanceamento PASS sem afrouxar critérios (Arena Livre alta no nível 1, sem desabar; 3 torneios concluíveis em dificuldade crescente); fluxo PASS; duas barras na tela de luta; save antigo migrado |
 | **2** | H (felicidade do público + EXIBIR + multiplicador) | eventos mexendo a barra (teste por evento); ×1,0 a ×2,0; ≤3 ações não multiplica; **teste anti-exploit** (spam de EXIBIR / fuga não rendem mais ouro por hora); linha do público no resultado |
 | **3** | I (rank/KD + títulos + acesso por rank) + B (cidade cenário) + 9 (arenas por faixa) | rank sobe/desce conforme a força do adversário; **farm não chega ao topo**; rebaixa ao cair do piso; destino trancado com motivo; arena mais lotada eleva a felicidade inicial; cidade navegável por cenário |
 | **4** | F (apresentação + comparação antes da luta) + G (apelidos/identidade) | tela aparece antes da luta com as estatísticas comparadas e o Índice de Poder; ENTRAR NA ARENA inicia o combate; provocação sorteada |
@@ -128,3 +128,50 @@ evidência arquivada e **commit direto na `main`** (exceção combinada para est
 
 **Definição de pronto:** todas as etapas acima verdes, com evidência (saída dos testes + capturas do jogo
 rodando) arquivada em `/root/workspace/docs/arena-gladiadores/`, e o README/documentos atualizados.
+
+---
+
+## Resultado da etapa 1 — medido (06/10/2026, commit `75ef6a0`)
+
+**Fórmulas em vigor** (implementadas e testadas):
+
+| Regra | Fórmula |
+| --- | --- |
+| Vida máxima | `10 + VIT × 6` |
+| Armadura máxima | soma de `armour` dos itens equipados (reserva separada: o dano consome armadura antes da vida) |
+| Acerto (ATT) | `clamp(precisão_da_ação + ATT × 0,010, 0, 1)` |
+| Esquiva (AGI) | `clamp(AGI × 0,010, 0, 0,45)` → dano zero, mensagem **ERROU** |
+| Auto-defesa (DEF) | `clamp(DEF × 0,010, 0, 0,50)`; ao aparar, `blocked = round(dano × 0,5)` e **"aparou X, entrou Y"** |
+| Dano | `max(1, round(STR × mult + rand(−3,4) − DEF × 0,55))` |
+| Crítico (SOR) | `clamp(0,06 + SOR/240, 0, 1) × 1,55` (SOR 5 → 8,1%; SOR 60 → 31,0%) |
+| DEFESA FIRME | reduz 30% do dano que entra (teto 60%) |
+| Taunt | `clamp(0,40 + (CHA_a − CHA_d) × 0,02 + STR_a × 0,01 + SOR_a × 0,005 − DEF_d × 0,012 − SOR_d × 0,015, 0,05, 0,95)`; efeitos: **avança 55%** / ataca com precisão baixa 25% / tropeça 20%; SORTE do alvo resiste ao empurrão |
+| DORMIR | cura **25%** da vida máxima, vulnerável no próximo golpe (inimigo +30% de precisão, sem esquiva) |
+| Nível | **4 pontos** de atributo para distribuir entre os 7 (o menu de 4 pacotes deixou de existir) |
+| Inimigo (Arena Livre) | `vida = max(20, 25 + L×7 + T×8 ± 6)`, `STR = max(4, 7 + round(L×1,75) + T×2 ± 2)`, `DEF = max(1, 2 + round(L×1,05) + T×2)`, `ATT = max(4, 5 + round(L×0,5) + T)`, `AGI = max(1, 2 + T)` |
+
+**Curva medida** (4.000 lutas por nível, seed fixa):
+
+| Nível | Jogador vida/STR/DEF | Arena Livre sem loja | com loja |
+| --- | --- | --- | --- |
+| 1 | 88/20/7 | 100% | 100% |
+| 3 | 100/28/9 | 93% | 99% |
+| 5 | 100/31/11 | 93% | 99% |
+| 8 | 130/41/14 | 92% | 100% |
+| 12 | 148/50/18 | 91% | 100% |
+| 15 | 166/57/21 | 92% | 100% |
+
+Torneios (jogador nos 6 slots): **Menor** 64% no nível 1 → 100% no 15 · **Maior** 8% → 98% ·
+**Grande** 0% → 89% (escada de dificuldade preservada). Nível 1 continua gerando só tier 1 (maior vida 46).
+
+**Testes novos da etapa 1** (todos verdes): acerto por ATT · esquiva por AGI (3.000 amostras) · auto-defesa com
+"aparou X, entrou Y" coerentes (X+Y = dano) · armadura absorvendo antes da vida · crítico por SOR · Taunt com
+maioria empurrando para frente e SORTE resistindo · DORMIR curando 25% e sem ser melhor que atacar
+(0 vitórias em 200 lutas de quem só dorme) · ações nomeadas · distribuição dos pontos de nível.
+
+**QA com o jogo aberto** (23 telas em `/root/workspace/docs/arena-gladiadores/qa20/`): criação com os 7
+atributos (STR 14 · ATT 11 · DEF 6 · AGI 8 · VIT 9 · CHA 6 · SOR 6, vida 64) · botões GOLPE / GOLPE FORTE
+[desabilitados fora de alcance] / INVESTIDA / DEFESA FIRME / AVANÇAR / RECUAR / **TAUNT: (43%)** / DORMIR ·
+log com *"Taunt: Míria, a Raposa avança um passo forçado (distância 1)"* · auto-defesa registrada
+(*aparado 6*) · pontos gastos ao vivo na tela do personagem (VIT 9 → 17, vida máxima 64 → 112) · vida cheia
+ao entrar no torneio (16 → 64).
